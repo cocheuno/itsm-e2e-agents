@@ -1,6 +1,6 @@
 # Phase 0
 
-The Phase 0 gate did not pass. `e2e doctor` exited 0. `e2e discover` exited 1 because the problem state walk is **partial**. Every SYN-PROBE residue count was 0. The Scripted REST endpoint was not installed. This commit records the scaffold, the probes, and that result.
+The Phase 0 gate passed on the final `e2e discover` (exit 0). `e2e doctor` exited 0. Every SYN-PROBE count was 0, every `SYN-E2E-PROBE` count was 0, and the Scripted REST endpoint was gone. The earlier discover in this repository, before this review, exited 1 because the Table API state walk was partial. That partial result is still true. This run is the one the gate uses.
 
 ## Fork and settings
 
@@ -11,13 +11,13 @@ origin	https://github.com/cocheuno/pm-agent.git (fetch)
 origin	https://github.com/cocheuno/pm-agent.git (push)
 ```
 
-`git -C ..\pm-agent-e2e rev-parse HEAD` is `5a8c995c3c9a92221716859f5ca17fe1e5c2ec04`. The local branch is `e2e`, with no upstream. There is no `evebrin/pm-agent` remote. `../pm-agent` was not read or changed for this build.
+`git -C ..\pm-agent-e2e rev-parse HEAD` is `5a8c995c3c9a92221716859f5ca17fe1e5c2ec04`. The local branch is `e2e`, with no upstream. There is no `evebrin/pm-agent` remote. `../pm-agent` was not read or changed for this build. The fork's `state_api.py` was not run and was not edited. This repository has its own adapted copy.
 
 All thirteen `.env` names are present and non-empty. None are missing: `SN_INSTANCE_URL`, `SN_ADMIN_USER`, `SN_ADMIN_PASSWORD`, `SN_AGENT_USER`, `SN_AGENT_PASSWORD`, `SN_INCIDENT_USER`, `SN_INCIDENT_PASSWORD`, `SN_PROBLEM_USER`, `SN_PROBLEM_PASSWORD`, `SN_AUTHORITY_USER`, `SN_AUTHORITY_PASSWORD`, `XAI_API_KEY`, `XAI_MODEL`. The URL matched `^https://dev\d+\.service-now\.com$` and its length is 33. Values are not printed here.
 
 ## Python and pins
 
-`uv run python -V` reported `Python 3.13.2`. uv used `C:\Users\caronet\AppData\Local\Programs\Python\Python313\python.exe` and created the environment at `%LOCALAPPDATA%\venvs\itsm-e2e-agents`. No `.venv` was created inside a repository.
+`uv run python -V` reported `Python 3.13.2`. uv used `C:\Users\caronet\AppData\Local\Programs\Python\Python313\python.exe` and the environment at `%LOCALAPPDATA%\venvs\itsm-e2e-agents`. No `.venv` was created inside a repository.
 
 | Checkout | Pinned commit |
 |---|---|
@@ -31,7 +31,7 @@ All thirteen `.env` names are present and non-empty. None are missing: `SN_INSTA
 
 Only this repository changed. `../pm-agent-e2e` has no file changes, so it has no commit. `../itscm-451z-agent` and `../ChangeManagementAgent` were not modified. `../pm-agent` was not used.
 
-This commit adds the package `e2e` (`doctor`, `discover`, settings, pins, contracts, CLI), `tests/unit`, `config/pins.json`, `pyproject.toml`, `uv.lock`, `.env.example`, `.gitignore`, `docs/DISCOVERY.md`, `docs/ASSUMPTIONS.md`, and this report. The architecture and the prompts were already in the working tree and are included.
+This phase adds `e2e/state_api.py` and extends discovery, the gate, `docs/DISCOVERY.md`, `docs/ASSUMPTIONS.md`, and this report.
 
 ## Cross-repository proposal
 
@@ -56,9 +56,9 @@ doctor: ok
 
 The three Phase 1 users are absent. That does not fail doctor.
 
-### `e2e discover` (exit 1)
+### `e2e discover` (exit 0)
 
-The second run used the General model's real edges (`sttrm_state.sttrm_model`, transitions on `from_state` / `to_state`). Printed results:
+Printed results from the passing run:
 
 ```
 glide.email.smtp.active is false and no active email account exists.
@@ -70,13 +70,27 @@ choices problem.close_code: none
 probe user syn.probe.approver: login=ok
 probe user syn.probe.incident: login=ok
 probe user syn.probe.problem: login=ok
-approval: assess=-4 authorize=-3 scheduled=-2 roles=none
+approval: assess=-4 authorize=-3 scheduled=-2 roles=none direct=0 web_service_access_only=true groups=Conditional Script Writer,Change Management,CAB Approval
 role problem_coordinator granted
 parent: linked=True status=200 listed=1
 rfc: stuck=False status=200
 problem.state: path=5 moved=1 last_status=200 102->103 read=102
 knowledge: workflow_state=draft status=200
-roles: authority=[] problem=['problem_coordinator'] knowledge=[] incident=[]
+problem_state write: 101->102 status=200 read_state=102 read_problem_state=102
+problem_state write: 102->103 status=200 read_state=102 read_problem_state=102
+problem_state: present path=5 moved=1 decision=failed
+endpoint install: operations=move,publish_article
+endpoint move: 101->102 status=200 read_state=102
+endpoint move: 102->103 status=200 read_state=103
+endpoint move: 103->104 status=200 read_state=104
+endpoint move: 104->106 status=409 read_state=106
+endpoint move: 106->107 status=200 read_state=107
+endpoint publish: status=200 workflow_state=published
+endpoint: move=verified publish=verified
+role sn_incident_write granted
+incident_writes: stuck=none roles=['sn_incident_write']
+problem_writes: stuck=none roles=['problem_coordinator']
+roles: authority=[] problem=['problem_coordinator'] knowledge=[] incident=['sn_incident_write']
 SYN-PROBE residue:
   change_request: 0
   change_task: 0
@@ -89,13 +103,23 @@ SYN-PROBE residue:
   sys_user: 0
   sys_user_grmember: 0
   sys_user_has_role: 0
+  problem SYN-E2E-PROBE: 0 query=correlation_idSTARTSWITHSYN-E2E-PROBE^ORshort_descriptionSTARTSWITHSYN-E2E-PROBE
+  incident SYN-E2E-PROBE: 0 query=correlation_idSTARTSWITHSYN-E2E-PROBE^ORshort_descriptionSTARTSWITHSYN-E2E-PROBE
+  kb_knowledge SYN-E2E-PROBE: 0 query=short_descriptionSTARTSWITHSYN-E2E-PROBE
+  sys_ws_definition: 0 query=service_id=syne2e_problem_state
+  sys_ws_operation: 0 query=web_service_definition.service_id=syne2e_problem_state
 wrote DISCOVERY.md
-states: not verified
 ```
 
-Problem create returned HTTP 403, then succeeded after `problem_coordinator`. Assess to Root Cause Analysis returned HTTP 200 and read back 102. The client log for the rest of the run is HTTP 200 or 201, plus one HTTP 404 while deleting a group membership that was already gone. Trimmed evidence is in `docs/DISCOVERY.md`.
+`problem.problem_state` is present (integer, active, not read-only). The problem user wrote it. New to Assess read back state `102`. Assess to Root Cause Analysis returned HTTP 200 and read back state `102` and `problem_state` `102`, including the retry that also sent `assigned_to`, `cause_notes`, `fix_notes`, `close_notes`, and `resolution_code`. Both operations were installed after that result.
 
-A follow-up, after discover had deleted its rows, moved one admin-owned SYN-PROBE problem. New to Assess stuck when `assigned_to` was set. Assess to Root Cause Analysis stayed on 102, including a write that also sent `cause_notes` and `workaround`. The problem was deleted. A leftover query returned 0.
+The move operation then read state `102`, `103`, `104`, `106`, and `107`. The `104` to `106` call returned HTTP 409 with no extra fields. The retry sent the fuller field set, returned HTTP 200, and read back `106`. `publish_article` returned HTTP 200 and the article read back `workflow_state=published`. Cleanup deleted both operations and the definition. The queries above are the proof that nothing remains.
+
+The approval user had `direct_role_count=0` and `web_service_access_only=true`. The probe inserted Change Management and CAB Approval. The membership query also returned Conditional Script Writer.
+
+Incident create needed no role. On an incident that user did not create, category, assignment group, parent, and a comment stuck with no role. Impact and urgency stuck after `sn_incident_write`. Work notes stuck with that role. Close code `Known error` returned HTTP 403 for that user and for admin, aborted by business rule `Check if Known error article required`. Close code `Solution provided` then read back state `6` with only `sn_incident_write`. `itil` was not granted.
+
+The problem user's known-error fields, article reference, incident parent, and incident work note stuck with `problem_coordinator`. No knowledge role was added.
 
 ### This repository
 
@@ -106,7 +130,7 @@ uv run ruff check e2e tests
 All checks passed!
 
 uv run pytest -q --tb=short
-22 passed in 2.54s
+25 passed in 1.60s
 ```
 
 ### ChangeManagementAgent
@@ -115,16 +139,16 @@ From `../ChangeManagementAgent`, with `UV_PROJECT_ENVIRONMENT` set to `%LOCALAPP
 
 ```
 uv run pytest -m "not live" -q --tb=line
-174 passed, 14 deselected in 60.38s
+174 passed, 14 deselected in 55.71s
 ```
 
 ### itscm-451z-agent
 
-From `../itscm-451z-agent`, with Python from `%LOCALAPPDATA%\venvs\itscm-451z-agent` after `pip install -r requirements.txt` into that environment:
+From `../itscm-451z-agent`, with Python from `%LOCALAPPDATA%\venvs\itscm-451z-agent`:
 
 ```
 python -m pytest -q --tb=line
-98 passed, 5 skipped, 7 warnings in 23.24s
+98 passed, 5 skipped, 7 warnings in 10.85s
 ```
 
 ### pm-agent-e2e
@@ -133,11 +157,11 @@ From `../pm-agent-e2e`, with Python from `%LOCALAPPDATA%\venvs\pm-agent-e2e`:
 
 ```
 python -m unittest discover tests
-Ran 17 tests in 0.043s
+Ran 17 tests in 0.037s
 OK
 ```
 
-The in-repo `.venv` under `../pm-agent` was not used.
+The in-repo `.venv` under `../pm-agent` was not used. These three suites do not import this repository. They were run in this session and their trees were not edited.
 
 ## Section 8
 
@@ -145,12 +169,16 @@ The in-repo `.venv` under `../pm-agent` was not used.
 |---|---|
 | `incident.u_caused_by` | verified. Reference to `change_request`, not read-only. |
 | `incident.problem_id` | absent |
-| non-admin approval | verified. No direct role. Change reached Scheduled (`-2`). |
+| non-admin approval | verified. No direct role. `web_service_access_only=true`. Change reached Scheduled (`-2`). |
 | `incident.parent` | verified |
 | `problem.rfc` | verified |
-| `problem.state` Table API | **partial**. New (101) to Assess (102) stuck with `assigned_to`. Assess (102) to Root Cause Analysis (103) did not, including as admin. |
-| Known Error publish | **approved-fallback**. Create succeeded. Publish stayed `draft`. |
-| least roles | The discover decision is **failed** because the state probe is partial. The observed grants are incident none, problem `problem_coordinator`, knowledge none, authority none. |
+| `problem.state` Table API | **partial**. New to Assess stuck with `assigned_to`. Assess to Root Cause Analysis read back 102. |
+| `problem.problem_state` | **failed**. The field exists. Writing it did not move Assess to Root Cause Analysis. |
+| endpoint | **verified**. `move` and `publish_article` were installed, used by the problem user, and removed. |
+| Known Error publish | **approved-fallback** for the Table API. `publish_article` published the tagged article and was then removed. |
+| incident writes | verified. `sn_incident_write` on an incident this user did not create. |
+| problem writes | verified. `problem_coordinator`. |
+| least roles | verified. Incident `sn_incident_write`. Problem `problem_coordinator`. Knowledge none. Authority none. |
 | choice values | verified. `problem.close_code` has no rows. |
 
 ## Deviations
@@ -158,21 +186,19 @@ The in-repo `.venv` under `../pm-agent` was not used.
 - The pm-agent sibling in this build is `../pm-agent-e2e`, not `../pm-agent`.
 - Settings are the thirteen names above.
 - The imported change commit is `811e8fd`, later than the architecture's `9450f95`.
-- The first discover run queried `sttrm_state_transition` with `from` and `to`. Those columns are `from_state` and `to_state`. That run only attempted Assess. The second run walked the model and is the one recorded above.
-- The generated Section 8 line for a partial state walk said the Scripted REST fallback was approved. The code and `docs/DISCOVERY.md` now say a partial walk is not that fallback. The evidence JSON is from the second run.
+- The first discover run queried `sttrm_state_transition` with `from` and `to`. Those columns are `from_state` and `to_state`. The walk recorded above uses the real columns.
+- A partial Table API state walk is not the approved fallback. The approved change is the adapted endpoint, installed by the probe and removed before this phase ended.
 - Catalog plans are copied byte for byte. `cm_agents` still prepends `Deployment method:` unless the catalog text already starts with that line. That is a Phase 3 constraint. ChangeManagementAgent was not edited.
+- Two discover runs in this review exited 1. The first stopped on the incident writes that returned HTTP 200 and did not stick. The second granted `itil` because close code `Known error` returned HTTP 403. That 403 is the business rule, and admin received it too. The passing run does not grant `itil`. It resolves with `Solution provided`.
 
 ## Open question
 
-The Table API moves New to Assess when `assigned_to` is in the same write. It does not move Assess to Root Cause Analysis. Admin could not move that edge either. Because one edge stuck and the next did not, the decision is partial, not the approved Scripted REST fallback.
-
-Separately, Known Error publish returned HTTP 200 and stayed `draft`. That row's approved fallback is `publish_article` on the same endpoint. It was not installed. No knowledge role was added, because the response was not HTTP 403.
-
-Should the pm-agent Scripted REST endpoint be installed so later problem states can move and so a Known Error article can be published? It will not be installed unless you say yes.
+The approval user's membership query listed Conditional Script Writer in addition to the two groups the probe inserted. No direct role was required for the approval.
 
 ## Risks
 
-- `problem.resolution_code` is read-only. Close edges that were read depend on it. Those edges were not attempted.
-- Incident resolve and close were not probed. The empty incident role set is only proved for create.
+- Close code `Known error` does not resolve an incident on this PDI unless the business rule is satisfied. `Solution provided` does.
+- `problem.resolution_code` is read-only through the Table API. The endpoint can set it. The Fix in Progress to Resolved hop needed that fuller field set.
 - A fix-catalog plan that does not already start with `Deployment method:` will be rewritten by change intake.
 - Path dependencies follow whatever commit is checked out. Doctor compares that commit with `config/pins.json`.
+- From Phase 1, seed must install this endpoint and teardown must remove it. Those commands are not implemented in this phase. The endpoint is not installed now.

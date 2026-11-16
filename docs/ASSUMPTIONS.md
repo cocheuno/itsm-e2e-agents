@@ -18,30 +18,44 @@ The master prompt's pm-agent sibling is `../pm-agent-e2e`. Its origin is `https:
 
 Phase 0 depends on `cm-agents` by path: `../ChangeManagementAgent`. Phase 2 adds `../itscm-451z-agent` after that repository is packaged on `e2e-incident`. Phase 3 adds `../pm-agent-e2e` after a minimal `pyproject.toml` lands on `e2e`. No absolute paths.
 
+## The one approved instance change
+
+The Scripted REST endpoint in `e2e/state_api.py` is the one approved instance change. It evaluates the problem state model, requires `problem_coordinator` for a move, and writes only `cause_notes`, `workaround`, `fix_notes`, `close_notes`, `resolution_code`, and `assigned_to`. It accepts `correlation_id` or `short_description` values that start with `SYN-E2E-`. It refuses every other record, including `PMSYNTH`.
+
+Phase 0 installed it as admin for the probe and removed it before the phase ended. From Phase 1, e2e seed installs it, records it in the manifest and the config history, and e2e teardown removes it. Seed and teardown are not commands yet.
+
+The probe installed both operations because writing `problem_state` did not reach Closed. `move` walked a `SYN-E2E-PROBE` problem through 102, 103, 104, 106, and 107. `publish_article` published one tagged Known Error article. The residue queries then showed `sys_ws_definition` 0 for `service_id=syne2e_problem_state` and `sys_ws_operation` 0 for `web_service_definition.service_id=syne2e_problem_state`.
+
 ## Role sets from the probes
 
-Grants were added only after HTTP 403, except that `snc_basic_auth_api_access` is reserved for a probe user who cannot log in. That role was not needed. `admin` was not granted.
+Grants were added one role at a time. `snc_basic_auth_api_access` is reserved for a probe user who cannot log in. That role was not needed. `admin` was not granted. `sn_change_write` was not granted.
 
-- Incident create succeeded with no direct role. Resolve and close were not probed. A later 403 can add `sn_incident_write`, then `itil` only if the write is still 403.
-- Problem create, `incident.parent`, `problem.rfc`, the New to Assess move, and Known Error create succeeded with `problem_coordinator`.
-- Knowledge publish returned HTTP 200 and did not stick, so `knowledge`, `sn_km_contribute`, and `knowledge_admin` were not added.
-- The authority probe approved with no direct role. Membership in Change Management and CAB Approval, looked up by name, was enough. `approver_user`, `sn_change_read`, and `itil` were not added. `sn_change_write` was not granted.
+- Incident create succeeded with no direct role.
+- On an incident this user did not create, category, assignment group, parent, and a comment stuck with no role. Impact and urgency did not both stick until `sn_incident_write`. Work notes then stuck with that same role. `itil` was not required.
+- Resolve with close code `Known error` returned HTTP 403 for the incident user and for admin. The business rule is `Check if Known error article required`. The same user, still with only `sn_incident_write`, resolved the incident to state `6` with close code `Solution provided`.
+- Problem create, `incident.parent`, `problem.rfc`, known error, `primary_known_error_article`, and the incident link (parent plus a work note) succeeded with `problem_coordinator`. `itil` was not added.
+- Table API article publish returned HTTP 200 and stayed `draft`, so `knowledge`, `sn_km_contribute`, and `knowledge_admin` were not added. `publish_article` published the tagged article with `problem_coordinator` only.
+- The authority probe had no direct role (`direct_role_count=0`) and `web_service_access_only=true`. The probe inserted Change Management and CAB Approval. The membership read-back also listed Conditional Script Writer. `approver_user`, `sn_change_read`, and `itil` were not added.
 
 ## Problem state
 
-`problem.state` has no `sys_dictionary` row. `task.state` is an integer and is not read-only. The General model requires `assigned_to` on New to Assess. That move stuck only when `assigned_to` was in the same Table API write.
+`problem.state` has no `sys_dictionary` row. `task.state` is an integer and is not read-only. `problem.problem_state` exists on `problem`: integer, active, not read-only.
 
-Assess to Root Cause Analysis has no condition row. The Table API did not move it. Admin could not move it either, with or without `cause_notes` and `workaround`. The walk stopped there, so the decision is **partial**. That is not the approved Scripted REST fallback. The endpoint is not installed.
+The Table API `state` walk is **partial**. New to Assess stuck when `assigned_to` was in the same write. Assess to Root Cause Analysis returned HTTP 200 and read back 102.
 
-Later edges, not attempted, require `cause_notes` and `fix_notes` to enter Fix in Progress, and `cause_notes` and `close_notes` to enter Resolved from Root Cause Analysis. `problem.resolution_code` is read-only. The close edges that were read depend on `resolution_code`.
+Writing `problem_state` instead of `state` had the same result. New to Assess read back state 102 and `problem_state` 102. Assess to Root Cause Analysis returned HTTP 200 with state 102 and `problem_state` 102, including a retry that sent `assigned_to`, `cause_notes`, `fix_notes`, `close_notes`, and `resolution_code`. That walk is **failed**. It is why both endpoint operations were installed for the probe.
+
+`problem.resolution_code` is read-only through the Table API. The endpoint's allow-list still sets it. The move from Fix in Progress to Resolved returned HTTP 409 with no extra fields, then HTTP 200 after the fuller field set, and state read back 106. Resolved to Closed then read back 107 with no extra fields.
 
 ## Known Error publish
 
-An active knowledge base titled Known Error exists. The problem user created a `kb_knowledge` article. `PATCH workflow_state=published` returned HTTP 200 and the body stayed `draft`. Decision: **approved-fallback**. `publish_article` is not installed.
+An active knowledge base titled Known Error exists. The problem user created a `kb_knowledge` article. `PATCH workflow_state=published` returned HTTP 200 and the body stayed `draft`. Decision for that Table API write: **approved-fallback**.
+
+`publish_article` then returned HTTP 200 and the article read back `published`. The endpoint was removed before the phase ended.
 
 ## Links
 
-`incident.u_caused_by` references `change_request` and is not read-only. `incident.problem_id` is absent. `incident.parent` read back as the problem. `problem.rfc` read back as the change. No custom field was created.
+`incident.u_caused_by` references `change_request` and is not read-only. `incident.problem_id` is absent. `incident.state` has no dictionary row on `incident`. `incident.incident_state` is an integer and is not read-only; the resolve that stuck wrote `state`, not `incident_state`. `incident.parent` read back as the problem. `problem.rfc` read back as the change. No custom field was created.
 
 ## Catalog text
 
@@ -49,4 +63,4 @@ An active knowledge base titled Known Error exists. The problem user created a `
 
 ## Approval
 
-A non-admin probe user approved its own `sysapproval_approver` rows through the Table API. The normal change moved from Assess (`-4`) to Authorize (`-3`) to Scheduled (`-2`). Scripted approval is not a fallback.
+A non-admin probe user approved its own `sysapproval_approver` rows through the Table API. The normal change moved from Assess (`-4`) to Authorize (`-3`) to Scheduled (`-2`). The user had no direct role and `web_service_access_only=true`. Scripted approval is not a fallback.

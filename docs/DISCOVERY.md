@@ -11,9 +11,19 @@ glide.email.smtp.active is false and no active email account exists.
 - `incident.u_caused_by`: [{'internal_type': 'reference', 'reference': 'change_request', 'read_only': 'false', 'active': 'true'}]
 - `incident.problem_id`: []
 - `incident.rfc`: []
+- `incident.state`: []
+- `incident.incident_state`: [{'internal_type': 'integer', 'reference': '', 'read_only': 'false', 'active': 'true'}]
 - `task.problem_id`: []
 - `problem.rfc`: [{'internal_type': 'reference', 'reference': 'change_request', 'read_only': 'false', 'active': 'true'}]
 - `problem.state`: []
+- `problem.problem_state`: [{'internal_type': 'integer', 'reference': '', 'read_only': 'false', 'active': 'true'}]
+- `problem.resolution_code`: [{'internal_type': 'choice', 'reference': '', 'read_only': 'true', 'active': 'true'}]
+- `problem.known_error`: [{'internal_type': 'boolean', 'reference': '', 'read_only': 'false', 'active': 'true'}]
+- `problem.primary_known_error_article`: [{'internal_type': 'reference', 'reference': 'kb_template_known_error_article', 'read_only': 'false', 'active': 'true'}]
+- `problem.cause_notes`: [{'internal_type': 'html', 'reference': '', 'read_only': 'false', 'active': 'true'}]
+- `problem.fix_notes`: [{'internal_type': 'html', 'reference': '', 'read_only': 'false', 'active': 'true'}]
+- `problem.close_notes`: []
+- `problem.workaround`: [{'internal_type': 'html', 'reference': '', 'read_only': 'false', 'active': 'true'}]
 - `task.state`: [{'internal_type': 'integer', 'reference': '', 'read_only': 'false', 'active': 'true'}]
 - `task.parent`: [{'internal_type': 'reference', 'reference': 'task', 'read_only': 'false', 'active': 'true'}]
 
@@ -48,7 +58,15 @@ Evidence:
     "CAB Approval": true
   },
   "memberships": 2,
+  "membership_names": [
+    "Conditional Script Writer",
+    "Change Management",
+    "CAB Approval"
+  ],
   "roles": [],
+  "direct_roles": [],
+  "direct_role_count": 0,
+  "web_service_access_only": "true",
   "assess_state": "-4",
   "first": {
     "probe_rows": 1,
@@ -68,11 +86,11 @@ Evidence:
   },
   "final_state": "-2",
   "final_approval": "approved",
-  "number": "CHG0047166"
+  "number": "CHG0047172"
 }
 ```
 
-Decision: **verified**. The probe user, without admin, approved its own rows at Assess and Authorize. The change reached Scheduled.
+Decision: **verified**. The approval probe user had no direct role (direct_role_count=0). The probe inserted Change Management and CAB Approval. sys_user_grmember read back: Conditional Script Writer, Change Management, CAB Approval. web_service_access_only=true. The change reached Scheduled.
 
 ## parent
 
@@ -89,7 +107,7 @@ Evidence:
 ```
 {
   "write_status": 200,
-  "parent": "04fc1b1ac328d390aef2be1d0501318c",
+  "parent": "1356ef16c3a8d390aef2be1d0501310d",
   "listed": 1,
   "problem_user_sees": 1,
   "incident_roles": [],
@@ -116,8 +134,8 @@ Evidence:
 ```
 {
   "write_status": 200,
-  "returned": "fcfc1b1ac328d390aef2be1d050131f5",
-  "read_back": "fcfc1b1ac328d390aef2be1d050131f5",
+  "returned": "b756ef16c3a8d390aef2be1d05013151",
+  "read_back": "b756ef16c3a8d390aef2be1d05013151",
   "stuck": false,
   "dictionary": [
     {
@@ -185,7 +203,7 @@ Evidence:
 }
 ```
 
-Decision: **partial**. The Table API moved some states and stopped. The endpoint was not installed.
+Decision: **partial**. The Table API moved some states and stopped. A partial walk is not the approved fallback.
 
 ## knowledge
 
@@ -205,7 +223,7 @@ Evidence:
   "create": {
     "status": 200,
     "table": "kb_knowledge",
-    "sys_id": "12fcdb1ac328d390aef2be1d05013140"
+    "sys_id": "02666356c3a8d390aef2be1d0501315a"
   },
   "publish_status": 200,
   "returned_workflow": "draft",
@@ -217,7 +235,480 @@ Evidence:
 }
 ```
 
-Decision: **approved-fallback**. The problem user did not publish the article through the Table API. The approved fallback is publish_article. It is not installed.
+Decision: **approved-fallback**. The problem user did not publish the article through the Table API. publish_article is the approved fallback. The endpoint probe records it.
+
+## problem_state
+
+Does writing problem_state, with the fields each state requires, move state through every state to Closed?
+
+Calls:
+
+- `GET sys_dictionary name=problem^element=problem_state`
+- `PATCH /api/now/table/problem/{sys_id} problem_state`
+- `GET /api/now/table/problem/{sys_id} state`
+
+Evidence:
+
+```
+{
+  "dictionary": [
+    {
+      "internal_type": "integer",
+      "reference": "",
+      "read_only": "false",
+      "active": "true"
+    }
+  ],
+  "start": "101",
+  "path": [
+    "102",
+    "103",
+    "104",
+    "106",
+    "107"
+  ],
+  "closed": "107",
+  "attempts": [
+    {
+      "before": "101",
+      "requested": "102",
+      "fields": [
+        "assigned_to"
+      ],
+      "full": false,
+      "status": 200,
+      "returned_state": "102",
+      "returned_problem_state": "102",
+      "after": "102",
+      "read_problem_state": "102",
+      "error": "",
+      "role_added": null
+    },
+    {
+      "before": "102",
+      "requested": "103",
+      "fields": [],
+      "full": false,
+      "status": 200,
+      "returned_state": "102",
+      "returned_problem_state": "102",
+      "after": "102",
+      "read_problem_state": "102",
+      "error": "",
+      "role_added": null,
+      "retry": {
+        "before": "102",
+        "requested": "103",
+        "fields": [
+          "assigned_to",
+          "cause_notes",
+          "close_notes",
+          "fix_notes",
+          "resolution_code"
+        ],
+        "full": true,
+        "status": 200,
+        "returned_state": "102",
+        "returned_problem_state": "102",
+        "after": "102",
+        "read_problem_state": "102",
+        "error": "",
+        "role_added": null
+      }
+    }
+  ],
+  "roles": [
+    "problem_coordinator"
+  ]
+}
+```
+
+Decision: **failed**. Writing problem_state did not move state through every state to Closed. Both endpoint operations are approved.
+
+## endpoint
+
+Can the problem user finish the state walk and publish a Known Error through the temporary endpoint?
+
+Calls:
+
+- `POST sys_ws_definition service_id=syne2e_problem_state`
+- `POST the installed operation as the problem user`
+- `DELETE sys_ws_operation and sys_ws_definition in cleanup`
+
+Evidence:
+
+```
+{
+  "operations": [
+    "move",
+    "publish_article"
+  ],
+  "base_uri_present": true,
+  "install_status": 200,
+  "removed": true,
+  "move": {
+    "decision": "verified",
+    "start": "101",
+    "path": [
+      "102",
+      "103",
+      "104",
+      "106",
+      "107"
+    ],
+    "closed": "107",
+    "attempts": [
+      {
+        "before": "101",
+        "requested": "102",
+        "fields": [
+          "assigned_to"
+        ],
+        "full": false,
+        "status": 200,
+        "returned_state": "102",
+        "script_ok": true,
+        "after": "102",
+        "error": "",
+        "role_added": null
+      },
+      {
+        "before": "102",
+        "requested": "103",
+        "fields": [],
+        "full": false,
+        "status": 200,
+        "returned_state": "103",
+        "script_ok": true,
+        "after": "103",
+        "error": "",
+        "role_added": null
+      },
+      {
+        "before": "103",
+        "requested": "104",
+        "fields": [
+          "cause_notes",
+          "fix_notes"
+        ],
+        "full": false,
+        "status": 200,
+        "returned_state": "104",
+        "script_ok": true,
+        "after": "104",
+        "error": "",
+        "role_added": null
+      },
+      {
+        "before": "104",
+        "requested": "106",
+        "fields": [],
+        "full": false,
+        "status": 409,
+        "returned_state": null,
+        "script_ok": null,
+        "after": "106",
+        "error": "ServiceNow returned HTTP 409",
+        "role_added": null,
+        "retry": {
+          "before": "104",
+          "requested": "106",
+          "fields": [
+            "assigned_to",
+            "cause_notes",
+            "close_notes",
+            "fix_notes",
+            "resolution_code"
+          ],
+          "full": true,
+          "status": 200,
+          "returned_state": "106",
+          "script_ok": true,
+          "after": "106",
+          "error": "",
+          "role_added": null
+        }
+      },
+      {
+        "before": "106",
+        "requested": "107",
+        "fields": [],
+        "full": false,
+        "status": 200,
+        "returned_state": "107",
+        "script_ok": true,
+        "after": "107",
+        "error": "",
+        "role_added": null
+      }
+    ],
+    "roles": [
+      "problem_coordinator"
+    ]
+  },
+  "publish": {
+    "decision": "verified",
+    "sys_id": "22766756c3a8d390aef2be1d050131d4",
+    "create_status": 200,
+    "workflow_state": "published",
+    "attempts": [
+      {
+        "status": 200,
+        "script_state": "published",
+        "script_ok": true,
+        "error": "",
+        "workflow_state": "published",
+        "roles": [
+          "problem_coordinator"
+        ]
+      }
+    ],
+    "roles": [
+      "problem_coordinator"
+    ]
+  }
+}
+```
+
+Decision: **verified**. The problem user finished the installed operations. Cleanup removes the endpoint before the phase ends.
+
+## incident_writes
+
+What smallest role set lets the incident user update an incident it did not create: category, priority inputs, assignment group, parent, a comment, and resolve with a close code?
+
+Calls:
+
+- `POST /api/now/table/incident as admin`
+- `PATCH category, impact, urgency, assignment_group, parent, comments, state`
+
+Evidence:
+
+```
+{
+  "created_by": "admin",
+  "service_desk": true,
+  "steps": [
+    {
+      "name": "category",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "category": "software"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [],
+      "error": ""
+    },
+    {
+      "name": "priority_inputs",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "impact": "2",
+        "urgency": "2",
+        "priority": "3"
+      },
+      "journal": null,
+      "role_added": "sn_incident_write",
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    },
+    {
+      "name": "assignment_group",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "assignment_group": "d625dccec0a8016700a222a0f7900d06"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    },
+    {
+      "name": "work_notes",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "work_notes": ""
+      },
+      "journal": {
+        "ok": true,
+        "status": 200,
+        "rows": 1
+      },
+      "role_added": null,
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    },
+    {
+      "name": "parent",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "parent": "8b76e716c3a8d390aef2be1d050131d3"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    },
+    {
+      "name": "comment",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "comments": ""
+      },
+      "journal": {
+        "ok": true,
+        "status": 200,
+        "rows": 1
+      },
+      "role_added": null,
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    },
+    {
+      "name": "resolve",
+      "status": 200,
+      "stuck": false,
+      "via_in_progress": false,
+      "read": {
+        "state": "6",
+        "close_code": "Solution provided",
+        "close_notes": "SYN-PROBE resolve"
+      },
+      "close_code": "Solution provided",
+      "known_error": {
+        "close_code": "Known error",
+        "status": 403,
+        "business_rule": true,
+        "admin_status": 403,
+        "error": "ServiceNow returned HTTP 403: Operation Failed Operation against file 'incident' was aborted by Business Rule 'Check if Known error article required^cb76e716c3a8d390aef2be1d050131da'. Business Rule Stack:Check if Known error article required"
+      },
+      "role_added": null,
+      "roles": [
+        "sn_incident_write"
+      ],
+      "error": ""
+    }
+  ],
+  "roles_before": [],
+  "roles_added": [
+    "sn_incident_write"
+  ],
+  "roles": [
+    "sn_incident_write"
+  ]
+}
+```
+
+Decision: **verified**. Each incident-workflow write on an incident this user did not create read back. The next role was added only after HTTP 403 or a write that did not stick.
+
+## problem_writes
+
+What smallest role set lets the problem user set known_error, primary_known_error_article, and the incident link?
+
+Calls:
+
+- `PATCH problem known_error and primary_known_error_article`
+- `PATCH incident parent and work_notes as the problem user`
+
+Evidence:
+
+```
+{
+  "article": true,
+  "steps": [
+    {
+      "name": "known_error",
+      "table": "problem",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "known_error": "true"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [
+        "problem_coordinator"
+      ],
+      "error": ""
+    },
+    {
+      "name": "primary_known_error_article",
+      "table": "problem",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "primary_known_error_article": "22766756c3a8d390aef2be1d050131d4"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [
+        "problem_coordinator"
+      ],
+      "error": ""
+    },
+    {
+      "name": "parent",
+      "table": "incident",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "parent": "bd86ab56c3a8d390aef2be1d0501310f"
+      },
+      "journal": null,
+      "role_added": null,
+      "roles": [
+        "problem_coordinator"
+      ],
+      "error": ""
+    },
+    {
+      "name": "work_notes",
+      "table": "incident",
+      "status": 200,
+      "stuck": false,
+      "read": {
+        "work_notes": ""
+      },
+      "journal": {
+        "ok": true,
+        "status": 200,
+        "rows": 1
+      },
+      "role_added": null,
+      "roles": [
+        "problem_coordinator"
+      ],
+      "error": ""
+    }
+  ],
+  "roles_before": [
+    "problem_coordinator"
+  ],
+  "roles_added": [],
+  "roles": [
+    "problem_coordinator"
+  ],
+  "knowledge_roles": []
+}
+```
+
+Decision: **verified**. Known-error fields and the incident link read back. The next problem role was added only after HTTP 403.
 
 ## roles
 
@@ -231,7 +722,9 @@ Evidence:
 
 ```
 {
-  "incident": [],
+  "incident": [
+    "sn_incident_write"
+  ],
   "problem": [
     "problem_coordinator"
   ],
@@ -240,7 +733,7 @@ Evidence:
 }
 ```
 
-Decision: **failed**. Duty roles were added only after HTTP 403. snc_basic_auth_api_access was added only when login failed. admin was not granted.
+Decision: **verified**. Duty roles were added one at a time after HTTP 403, or after an incident write returned 200 and did not stick. snc_basic_auth_api_access was added only when login failed. admin was not granted.
 
 ## Residue
 
@@ -255,6 +748,11 @@ Decision: **failed**. Duty roles were added only after HTTP 403. snc_basic_auth_
 - `sys_user`: 0
 - `sys_user_grmember`: 0
 - `sys_user_has_role`: 0
+- `problem SYN-E2E-PROBE`: 0
+- `incident SYN-E2E-PROBE`: 0
+- `kb_knowledge SYN-E2E-PROBE`: 0
+- `sys_ws_definition`: 0
+- `sys_ws_operation`: 0
 
 ## Section 8
 
@@ -263,25 +761,11 @@ Decision: **failed**. Duty roles were added only after HTTP 403. snc_basic_auth_
 - `non-admin approval`: verified. Scripted approval is not a fallback.
 - `incident.parent`: verified. Custom field fallback is not approved.
 - `problem.rfc`: verified. Fallback is a work note plus change.parent.
-- `problem.state Table API`: partial. A partial walk is not the approved fallback. The endpoint was not installed.
-- `Known Error publish`: approved-fallback. publish_article is the approved fallback and is not installed.
-- `least roles`: failed. One role at a time. admin was not granted.
+- `problem.state Table API`: partial. A partial walk is not the approved fallback. The endpoint result is a separate row.
+- `Known Error publish`: approved-fallback. Table API publish stayed draft. publish_article was probed and then removed.
+- `problem.problem_state`: failed. Writes problem_state and reads state back.
+- `endpoint`: verified. Installed operations: move, publish_article. The residue query shows the endpoint is gone.
+- `incident writes`: verified. One role at a time on an incident this user did not create.
+- `problem writes`: verified. Known error fields and the incident link, one role at a time.
+- `least roles`: verified. One role at a time. admin was not granted.
 - `choice values`: verified. Read from sys_choice.
-
-## Follow-up reads
-
-These reads ran after `e2e discover` returned. They did not install an endpoint. The diagnostic problem used the SYN-PROBE marker and was deleted. A leftover query on `problem.short_descriptionSTARTSWITHSYN-PROBE` returned 0 rows.
-
-The General problem model (`prb_model` sys_id `b58c327fb70c021041c2feb0be11a90e`, name General) has six states and twelve `sttrm_state_transition` rows. `from_state` and `to_state` reference `sttrm_state`. Conditions on `sttrm_transition_condition` for those transitions:
-
-- New to Assess: `assigned_toISNOTEMPTY`
-- Assess to Root Cause Analysis: no condition row
-- Root Cause Analysis to Fix in Progress: `cause_notesISNOTEMPTY^fix_notesISNOTEMPTY`
-- Root Cause Analysis to Resolved: `cause_notesISNOTEMPTY^close_notesISNOTEMPTY`
-- Assess to Closed, Root Cause Analysis to Closed, and Fix in Progress to Closed: `resolution_code` conditions, with `close_notes` or `duplicate_of` on some branches
-
-`sys_dictionary` for `problem.resolution_code` is `read_only=true`. `problem.cause_notes`, `problem.fix_notes`, and `problem.workaround` are writable html fields and are not mandatory.
-
-An admin Table API write then confirmed the stuck edge is not a missing role. With `assigned_to` set, New (101) moved to Assess (102). The next write, `state=103`, returned 102 and read back 102. A second write that also sent `cause_notes` and `workaround` stayed on 102. The diagnostic problem was deleted.
-
-The role decision in this file is **failed** because the state probe is partial. The grants themselves were: incident none, problem `problem_coordinator` after HTTP 403, knowledge none because publish returned HTTP 200, authority none beyond the two group memberships.
