@@ -22,7 +22,7 @@ Phase 0 depends on `cm-agents` by path: `../ChangeManagementAgent`. Phase 2 adds
 
 The Scripted REST endpoint in `e2e/state_api.py` is the one approved instance change. It evaluates the problem state model, requires `problem_coordinator` for a move, and writes only `cause_notes`, `workaround`, `fix_notes`, `close_notes`, `resolution_code`, and `assigned_to`. It accepts `correlation_id` or `short_description` values that start with `SYN-E2E-`. It refuses every other record, including `PMSYNTH`.
 
-Phase 0 installed it as admin for the probe and removed it before the phase ended. From Phase 1, e2e seed installs it, records it in the manifest and the config history, and e2e teardown removes it. Seed and teardown are not commands yet.
+Phase 0 installed it as admin for the probe and removed it before the phase ended. From Phase 1, `e2e seed` installs it, records it in the manifest and the config history, and `e2e teardown` removes it.
 
 The probe installed both operations because writing `problem_state` did not reach Closed. `move` walked a `SYN-E2E-PROBE` problem through 102, 103, 104, 106, and 107. `publish_article` published one tagged Known Error article. The residue queries then showed `sys_ws_definition` 0 for `service_id=syne2e_problem_state` and `sys_ws_operation` 0 for `web_service_definition.service_id=syne2e_problem_state`.
 
@@ -64,3 +64,11 @@ An active knowledge base titled Known Error exists. The problem user created a `
 ## Approval
 
 A non-admin probe user approved its own `sysapproval_approver` rows through the Table API. The normal change moved from Assess (`-4`) to Authorize (`-3`) to Scheduled (`-2`). The user had no direct role and `web_service_access_only=true`. Scripted approval is not a fallback.
+
+## Detection grouping
+
+End-to-end incidents leave `business_service` empty so detection groups by CI. The fork also groups by `business_service` when that field is non-empty. The change still takes its service from the existing CI row in the change fixtures.
+
+## Fix plans
+
+The fix catalog supplies every plan. The agents do not write a free-form implementation plan, backout plan, or test plan.

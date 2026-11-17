@@ -1,4 +1,4 @@
-"""Command line. Phase 0 ships doctor and discover."""
+"""Command line for doctor, discover, seed, teardown, and the Phase 1 gate."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import sys
 from cm_agents.settings import SettingsError, redact_text
 
 from e2e.doctor import run_doctor
+from e2e.errors import WorldError
 from e2e.settings import load_settings
 
 
@@ -37,6 +38,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Check the instance, email, logins, and the change seed")
     sub.add_parser("discover", help="Run the Phase 0 probes and write docs/DISCOVERY.md")
+    sub.add_parser("seed", help="Load the e2e world, the endpoint, and the service users")
+    sub.add_parser("teardown", help="Remove the e2e world and leave the change seed")
+    sub.add_parser("gate", help="Run the Phase 1 gate and leave the world seeded")
     args = parser.parse_args(argv)
     try:
         settings = load_settings()
@@ -44,13 +48,29 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     configure_logging(settings.secret_values())
-    if args.command == "doctor":
-        report = run_doctor(settings)
-        print(report.text())
-        return 0 if report.ok else 1
-    from e2e.discover import run_discover
+    try:
+        if args.command == "doctor":
+            report = run_doctor(settings)
+            print(report.text())
+            return 0 if report.ok else 1
+        if args.command == "discover":
+            from e2e.discover import run_discover
 
-    return run_discover(settings)
+            return run_discover(settings)
+        if args.command == "seed":
+            from e2e.seed import run_seed
+
+            return run_seed(settings)
+        if args.command == "teardown":
+            from e2e.teardown import run_teardown
+
+            return run_teardown(settings)
+        from e2e.gate import run_gate
+
+        return run_gate(settings)
+    except WorldError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

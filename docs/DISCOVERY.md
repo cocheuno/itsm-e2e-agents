@@ -769,3 +769,93 @@ Decision: **verified**. Duty roles were added one at a time after HTTP 403, or a
 - `problem writes`: verified. Known error fields and the incident link, one role at a time.
 - `least roles`: verified. One role at a time. admin was not granted.
 - `choice values`: verified. Read from sys_choice.
+
+## Resolved and Closed parent
+
+Can the problem user set and clear `incident.parent` on a Resolved incident, and on a Closed incident? Will this instance auto-close a Resolved incident, and so will history loaded as Resolved become Closed?
+
+The configured problem user was absent. The probe created `syn.probe.parentlink` with `problem_coordinator` only, used that user for the parent writes, and deleted the user. Admin set the incident state. Admin did not write `parent`.
+
+Calls:
+
+- `POST /api/now/table/incident` and `POST /api/now/table/problem`, marker `SYN-E2E-PROBE`
+- `PATCH` state `6`, then state `7`, close code `Solution provided`, as admin
+- `PATCH incident.parent` set and clear, as the problem user
+
+Evidence:
+
+```
+resolved_set_write=200
+resolved_set_stuck=true
+resolved_state=6
+resolved_clear_write=200
+resolved_clear_stuck=true
+closed_set_write=200
+closed_set_stuck=false
+closed_state=7
+closed_clear_write=200
+closed_clear_stuck=true
+property glide.ui.autoclose.time=7
+property com.snc.incident.autoclose.basedon.resolved_at=true
+business_rule incident autoclose: active, when=after, insert=false, update=false, delete=false, query=false
+sysauto_script autoclose=0
+residue_incident=0
+residue_problem=0
+residue_sys_user=0
+```
+
+The business rule defines `autoCloseIncidents()`. It reads `glide.ui.autoclose.time`, and because `com.snc.incident.autoclose.basedon.resolved_at` is true it would close Resolved incidents whose `resolved_at` is older than that many days. Every action flag on the rule is false, so an insert or an update does not run it. No scheduled job on this instance calls it. The job "Autoclose Incidents" is absent.
+
+Decision: **verified** for Resolved. The problem user set and cleared `parent`, the value stuck, and the state stayed `6`. The same set on a Closed incident returned HTTP 200 and did not stick. History is loaded as Resolved with close code `Solution provided`. A problem opened from a cluster links that history, including the clear at cleanup, as the problem user. Closed incidents are not used for that link. History loaded as Resolved stays Resolved while the closer stays unwired. No custom parent field.
+
+## Password policy
+
+Does this PDI accept a new user's password that has no special character?
+
+Calls:
+
+- `POST /api/now/table/sys_user` with `sysparm_input_display_value=true`, `web_service_access_only=true`, and `password_needs_reset=false`
+- `GET /api/now/ui/user/current` as that user
+- `GET sys_properties` for `glide.enable.password_policy` and `glide.record.enforce_password_policy_all`
+- Delete the throwaway user
+
+Evidence:
+
+```
+glide.enable.password_policy=true
+glide.record.enforce_password_policy_all=true
+alphanumeric length 19: create HTTP 200, login HTTP 401, password_needs_reset=false, locked_out=false
+alphanumeric length 24: create HTTP 200, login HTTP 401
+password containing ! or - or _: login ok at lengths 8, 11, 19, 24, and 28
+password_policy table: denied to the Table API by the web service access policy
+throwaway residue=0
+```
+
+The configured service passwords had no special character. Create returned HTTP 200, and login returned HTTP 401. Granting `snc_basic_auth_api_access` did not change that 401. A throwaway user with no role logged in when the password contained a special character.
+
+Decision: **verified**. On this PDI a password without a special character is accepted on create (HTTP 200) and then fails login with HTTP 401. `glide.enable.password_policy` is true. Service passwords need a special character. `!`, `-`, and `_` were accepted.
+
+## Known error close code
+
+Can the incident user resolve a SYN-E2E-PROBE incident with close code "Known error" when its parent is the seeded E01 problem?
+
+Calls:
+
+- `POST /api/now/table/incident` as the incident user, marker `SYN-E2E-PROBE`
+- `PATCH` parent to the E01 problem
+- `PATCH` state `6` and close code `Known error`
+- `DELETE` the probe incident
+
+Evidence:
+
+```
+parent_write=200
+parent_stuck=true
+close_write=403
+close_stuck=false
+read_state=1
+read_close_code=
+probe_deleted=true
+```
+
+Decision: The close code was refused. Historical incidents stay on close code "Solution provided".
