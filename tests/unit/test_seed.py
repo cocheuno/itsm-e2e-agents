@@ -12,6 +12,7 @@ def test_history_payload_resolves_incident_state_and_sets_parent_only_for_e01() 
         "cmdb_ci": "syn-store-checkout",
         "correlation_id": "SYN-E2E-INC-C02-001",
         "parent": "",
+        "category": "software",
     }
     payload = _payload(
         row,
@@ -23,8 +24,19 @@ def test_history_payload_resolves_incident_state_and_sets_parent_only_for_e01() 
     assert payload["u_state"] == "6"
     assert payload["u_incident_state"] == "6"
     assert payload["u_active"] == "false"
+    assert payload["u_category"] == "software"
     assert "u_parent" not in payload
     assert "u_closed_at" not in payload
+    row["category"] = "hardware"
+    hardware = _payload(
+        row,
+        cis={"syn-store-checkout": "a" * 32},
+        group_id="b" * 32,
+        caller="c" * 32,
+        problem_id="d" * 32,
+    )
+    assert hardware["u_category"] == "hardware"
+    row["category"] = "software"
 
     row["parent"] = "E01"
     linked = _payload(

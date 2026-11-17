@@ -25,6 +25,17 @@ def test_existing_user_login_failure_fails() -> None:
     )
 
 
+def test_close_script_targets_fail_the_doctor() -> None:
+    assert not doctor_ok(
+        admin_ok=True,
+        email_ok=True,
+        agent_login="ok",
+        seed_changes=10,
+        pins_ok=True,
+        close_script_targets=1,
+    )
+
+
 def test_change_agent_and_seed_are_required() -> None:
     assert not doctor_ok(
         admin_ok=True,

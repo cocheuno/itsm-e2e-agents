@@ -11,7 +11,6 @@ from e2e.data.world import (
     ANCHOR,
     BURST_NOTES,
     BURST_SUMMARIES,
-    CATEGORY,
     CLUSTERS,
     DECOY_NOTES,
     DECOY_SUMMARIES,
@@ -21,6 +20,7 @@ from e2e.data.world import (
     NOISE_SUMMARIES,
     PHRASES,
     SEED,
+    category_for_class,
 )
 
 INJECT = "SYN-E2E-INJECT"
@@ -36,6 +36,7 @@ def note_for(mechanism: str, summary: str) -> str:
 
 def build_incidents() -> list[dict[str, Any]]:
     """Every planted incident, including arrivals that seed does not load."""
+    _changes, ci_index = change_world()
     rows: list[dict[str, Any]] = []
     number = 1
 
@@ -70,6 +71,7 @@ def build_incidents() -> list[dict[str, Any]]:
                     parent=str(cluster.get("parent") or ""),
                     history=not arrival,
                     scenario=str(cluster["scenario"]),
+                    ci_index=ci_index,
                 )
             )
     for offset, summary in enumerate(DECOY_SUMMARIES):
@@ -86,6 +88,7 @@ def build_incidents() -> list[dict[str, Any]]:
                 parent="",
                 history=True,
                 scenario="E06",
+                ci_index=ci_index,
             )
         )
     for offset, summary in enumerate(BURST_SUMMARIES):
@@ -102,11 +105,12 @@ def build_incidents() -> list[dict[str, Any]]:
                 parent="",
                 history=True,
                 scenario="E06",
+                ci_index=ci_index,
             )
         )
-    for ci_index, ci in enumerate(NOISE_CIS):
+    for noise_index, ci in enumerate(NOISE_CIS):
         for day_index, day in enumerate(NOISE_DAYS):
-            summary = NOISE_SUMMARIES[ci_index * 3 + day_index]
+            summary = NOISE_SUMMARIES[noise_index * 3 + day_index]
             add(
                 _row(
                     cluster=f"noise-{ci}",
@@ -120,6 +124,7 @@ def build_incidents() -> list[dict[str, Any]]:
                     parent="",
                     history=True,
                     scenario="",
+                    ci_index=ci_index,
                 )
             )
     for index, row in enumerate(rows, start=1):
@@ -141,8 +146,15 @@ def _row(
     parent: str,
     history: bool,
     scenario: str,
+    ci_index: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     opened = f"{day} {hour:02d}:00:00"
+    info = ci_index.get(ci)
+    if info is None:
+        raise ValueError(f"{ci} is not in the change-world CI index")
+    category = category_for_class(info["ci_class"])
+    if not category:
+        raise ValueError(f"{ci} class {info['ci_class']} has no category")
     return {
         "cluster": cluster,
         "cmdb_ci": ci,
@@ -155,7 +167,7 @@ def _row(
         "history": history,
         "scenario": scenario,
         "opened_at": opened,
-        "category": CATEGORY,
+        "category": category,
         "business_service": "",
         "state": "6",
         "close_code": "Solution provided",

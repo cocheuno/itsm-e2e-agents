@@ -5,13 +5,33 @@ from __future__ import annotations
 SEED = 42
 ANCHOR = "2026-10-27 00:00:00"
 MARKER = "SYN-E2E-"
-CATEGORY = "software"
+# One work-note line per Closed history incident: number, then correlation id.
+HISTORY_NOTE = "SYN-E2E-HISTORY"
+# Incident category by CI class. History and arrivals use this table.
+# A class that is not listed gets no category.
+CATEGORY_BY_CI_CLASS: dict[str, str] = {
+    "cmdb_ci_appl": "software",
+    "cmdb_ci_linux_server": "hardware",
+}
 LOOKBACK_DAYS = 42
 CHANGE_WINDOW_DAYS = 14
 WEEKDAY_WEEKS = 3
 LIFT_AFTER_COUNT = 3
 LIFT_RATIO = 2
 RATE_MIN_COUNT = 3
+
+
+def category_for_class(ci_class: str) -> str:
+    """Return the incident category for a CI class, or empty when the class is unknown."""
+    return CATEGORY_BY_CI_CLASS.get(ci_class, "")
+
+
+def history_note_line(number: str, correlation_id: str) -> str:
+    """One Closed-history line a person can follow from the problem."""
+    if not number or not correlation_id:
+        raise ValueError("history note needs the incident number and the correlation id")
+    return f"{HISTORY_NOTE} {number} {correlation_id}"
+
 
 # Signal (a). A phrase votes only when it is in more than half the notes.
 PHRASES: dict[str, tuple[str, ...]] = {

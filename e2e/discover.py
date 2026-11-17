@@ -2139,11 +2139,11 @@ def _problem_write_probe(
     article_id: str,
 ) -> dict[str, Any]:
     question = (
-        "What smallest role set lets the problem user set known_error, "
-        "primary_known_error_article, and the incident link?"
+        "What smallest role set lets the problem user set known_error "
+        "and the incident parent?"
     )
     calls = [
-        "PATCH problem known_error and primary_known_error_article",
+        "PATCH problem known_error",
         "PATCH incident parent and work_notes as the problem user",
     ]
     problem_user = users[PROBLEM_USER]
@@ -2203,20 +2203,6 @@ def _problem_write_probe(
             problem_user,
             passwords,
             secret_bag,
-            "problem",
-            problem_id,
-            "primary_known_error_article",
-            {"primary_known_error_article": article_id},
-            ["primary_known_error_article"],
-            expect={"primary_known_error_article": article_id} if article_id else None,
-            blocked=not article_id,
-        ),
-        _problem_step(
-            admin,
-            settings,
-            problem_user,
-            passwords,
-            secret_bag,
             "incident",
             incident_id,
             "parent",
@@ -2251,7 +2237,7 @@ def _problem_write_probe(
     decision = "verified" if not stuck else "failed"
     print(f"problem_writes: stuck={stuck or 'none'} roles={evidence['roles']}")
     reason = (
-        "Known-error fields and the incident link read back. "
+        "The known_error flag and the incident link read back. "
         "The next problem role was added only after HTTP 403."
         if decision == "verified"
         else "A known-error or incident-link write did not read back."

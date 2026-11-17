@@ -13,6 +13,7 @@ from cm_agents.settings import redact_text
 from e2e.counts import format_counts, probe_residue, snapshot
 from e2e.doctor import run_doctor
 from e2e.errors import WorldError
+from e2e.guard import assert_run_quiet, e2e_incident_ids, latest_incident_stamp
 from e2e.instance import open_client
 from e2e.paths import repo_root
 from e2e.probes import run_authority_probe, run_known_error_probe
@@ -25,6 +26,8 @@ _URL = re.compile(r"https://dev\d+\.service-now\.com", re.IGNORECASE)
 
 
 def run_gate(settings: Settings) -> int:
+    with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
+        started = latest_incident_stamp(admin)
     print("gate: teardown")
     run_teardown(settings)
     absent = _counts(settings)
@@ -67,6 +70,9 @@ def run_gate(settings: Settings) -> int:
     print(report.text())
     if not report.ok:
         raise WorldError("e2e doctor failed")
+    with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
+        outside = assert_run_quiet(admin, started, e2e_incident_ids(admin))
+    print(f"gate outside incident updates={outside}")
     print("gate: cm-agents doctor")
     _change(settings, ["-m", "cm_agents.cli", "doctor"], timeout=300)
     print("gate: S09")

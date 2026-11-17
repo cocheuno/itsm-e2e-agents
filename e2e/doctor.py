@@ -12,6 +12,10 @@ from e2e.settings import Settings
 
 BUILD_QUERY = "nameINglide.buildname,glide.buildtag,glide.war"
 BUILD_FALLBACK_QUERY = "nameSTARTSWITHglide.build^ORname=glide.war"
+# Effective query of "Update Incident when Problem closes". The script also
+# adds problem_id, which is not a field on incident, so the platform ignores
+# that term. State 3 is Awaiting Problem and hold reason 3 is awaiting a problem.
+CLOSE_SCRIPT_QUERY = "state=3^hold_reason=3"
 _LOGIN_FIELDS = (
     ("change agent", "sn_agent_user", "sn_agent_password"),
     ("incident user", "sn_incident_user", "sn_incident_password"),
@@ -37,8 +41,13 @@ def doctor_ok(
     seed_changes: int,
     pins_ok: bool,
     present_users_ok: bool = True,
+    close_script_targets: int = 0,
 ) -> bool:
-    """The three Phase 1 users may be absent. A user that exists must log in."""
+    """The three Phase 1 users may be absent. A user that exists must log in.
+
+    close_script_targets is how many incidents a problem close would resolve.
+    A non-zero count fails the doctor so it cannot pass unnoticed.
+    """
     return (
         admin_ok
         and email_ok
@@ -46,6 +55,7 @@ def doctor_ok(
         and seed_changes > 0
         and pins_ok
         and present_users_ok
+        and close_script_targets == 0
     )
 
 
@@ -57,6 +67,7 @@ def run_doctor(settings: Settings) -> DoctorReport:
     seed_changes = 0
     agent_login = "not checked"
     present_users_ok = True
+    close_script_targets = 0
     with ServiceNowClient(
         settings.sn_instance_url,
         settings.sn_admin_user,
@@ -80,6 +91,13 @@ def run_doctor(settings: Settings) -> DoctorReport:
         lines.append(
             "change seed:"
             f" SYN-CHG-={seed_changes} SYN-INC-={seed_incidents} syn-ci={seed_cis}"
+        )
+        close_script_targets = _close_script_targets(admin)
+        lines.append(
+            "problem close would resolve:"
+            f" {close_script_targets}"
+            " script=Update Incident when Problem closes"
+            f" query={CLOSE_SCRIPT_QUERY}"
         )
         for label, user_attr, _password_attr in _LOGIN_FIELDS:
             user_name = getattr(settings, user_attr)
@@ -107,6 +125,7 @@ def run_doctor(settings: Settings) -> DoctorReport:
         seed_changes=seed_changes,
         pins_ok=pins_ok,
         present_users_ok=present_users_ok,
+        close_script_targets=close_script_targets,
     )
     lines.append("doctor: ok" if ok else "doctor: failed")
     return DoctorReport(lines, ok=ok)
@@ -167,6 +186,13 @@ def _email(client: ServiceNowClient) -> tuple[bool, str]:
     if allowed:
         return True, "email: off"
     return False, f"email: blocked ({reason})"
+
+
+def _close_script_targets(client: ServiceNowClient) -> int:
+    try:
+        return client.count("incident", CLOSE_SCRIPT_QUERY)
+    except ServiceNowError:
+        return -1
 
 
 def _seed_counts(client: ServiceNowClient) -> tuple[int, int, int]:

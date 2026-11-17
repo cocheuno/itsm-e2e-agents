@@ -2,9 +2,9 @@
 
 History incidents go through an import set with business rules off. The E01
 problem is created by the problem user and moved with the endpoint. A second
-seed skips rows that are already present. Publishing the E01 known error can
-make a system update turn the first checkout rows active. Those rows are
-posted again through the same import set, with business rules still off.
+seed skips rows that are already present. The known-error link is the article's
+source and CI. This seed does not write the problem's primary article field.
+Rows a rules-on update reopens are posted again through the same import set.
 """
 
 from __future__ import annotations
@@ -23,9 +23,10 @@ from e2e.counts import format_counts, snapshot
 from e2e.data.fixtures import seeded_incidents
 from e2e.data.ground_truth import problem_key, write_ground_truth
 from e2e.data.history import Ledger
-from e2e.data.world import ANCHOR, MARKER, SEED
+from e2e.data.world import ANCHOR, HISTORY_NOTE, MARKER, SEED, history_note_line
 from e2e.doctor import run_doctor
 from e2e.errors import WorldError
+from e2e.guard import assert_run_quiet, e2e_incident_ids, latest_incident_stamp
 from e2e.instance import http_failure, open_client
 from e2e.paths import manifest_path
 from e2e.settings import Settings
@@ -45,8 +46,8 @@ WORKAROUND = "Retry the page. Clear the filled log files at the next maintenance
 E01_SHORT = "SYN-E2E- Log rotation stopped on syn-store-cdn"
 ARTICLE_SHORT = "SYN-E2E- Known error for syn-store-cdn"
 DESK = "SYN Service Desk"
-# Publishing the E01 known error makes the platform update matching history
-# incidents for a few minutes. Wait until that count stays still, then reimport.
+# A rules-on parent write can reopen a closed incident. Wait until that
+# count stays still, then reimport with business rules off.
 _SETTLE_STEP = 15
 _SETTLE_QUIET = 45
 _SETTLE_LIMIT = 16
@@ -60,6 +61,7 @@ def run_seed(settings: Settings) -> int:
     ledger = Ledger()
     manifest = _new_manifest()
     with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
+        started = latest_incident_stamp(admin)
         _ensure_import(admin, manifest, ledger)
         ensure_service_users(admin, settings, ledger)
         base_uri = _ensure_endpoint(admin, manifest, ledger)
@@ -67,6 +69,8 @@ def run_seed(settings: Settings) -> int:
         _import_history(admin, settings, manifest, ledger, seeded, problem_id)
         _sweep(admin, settings, manifest, ledger)
         save_manifest(manifest_path(), manifest)
+        outside = assert_run_quiet(admin, started, e2e_incident_ids(admin))
+        print(f"outside incident updates={outside}")
         counts = snapshot(admin)
     print(f"seed: {format_counts(counts)}")
     _expect(counts, ground)
@@ -377,7 +381,7 @@ def _ensure_e01(
                 "resolution_code": "fix_applied",
             },
         )
-        article_id = _publish_known_error(actor, admin, base_uri)
+        article_id = _publish_known_error(actor, admin, base_uri, problem_id, ci)
         _mark_known_error(actor, admin, problem_id, article_id)
     _keep_record(manifest, ledger, "problem", problem_id, key)
     _keep_record(manifest, ledger, "kb_knowledge", article_id, ARTICLE_SHORT)
@@ -388,16 +392,27 @@ def _ensure_e01(
 def _e01_ready(admin: ServiceNowClient, row: dict[str, Any]) -> bool:
     if str(row.get("state") or "") != "103" or not _truthy(row.get("known_error")):
         return False
-    article_id = str(row.get("primary_known_error_article") or "")
-    if len(article_id) != 32:
+    if str(row.get("primary_known_error_article") or ""):
+        return False
+    problem_id = str(row.get("sys_id") or "")
+    if len(problem_id) != 32:
         return False
     try:
-        article = _read_article(admin, article_id)
-    except WorldError:
+        articles = admin.get_table(
+            "kb_knowledge",
+            query=(
+                f"source={problem_id}^workflow_state=published"
+                f"^short_descriptionSTARTSWITH{MARKER}"
+            ),
+            fields=["sys_id", "cmdb_ci"],
+            limit=2,
+        )
+        problem = admin.get_record("problem", problem_id, fields=["cmdb_ci"])
+    except ServiceNowError:
         return False
-    workflow = str(article.get("workflow_state") or "")
-    short = str(article.get("short_description") or "")
-    return workflow == "published" and short.startswith(MARKER)
+    if len(articles) != 1:
+        return False
+    return str(articles[0].get("cmdb_ci") or "") == str(problem.get("cmdb_ci") or "")
 
 
 def _move(
@@ -445,66 +460,43 @@ def _publish_known_error(
     actor: ServiceNowClient,
     admin: ServiceNowClient,
     base_uri: str,
+    problem_id: str,
+    ci_id: str,
 ) -> str:
     base_id = _one(admin, "kb_knowledge_base", "title=Known Error^active=true")
-    table, article_id = _create_article(actor, base_id)
+    article_id = _create_article(actor, base_id, problem_id=problem_id, ci_id=ci_id)
     _publish(actor, admin, base_uri, article_id)
-    if _known_error_link_works(actor, admin, article_id):
-        return article_id
-    if table != "kb_knowledge":
-        raise WorldError("E01 known-error article did not link to the problem")
-    _template, template_id = _create_article(actor, base_id, knowledge=False)
-    _publish(actor, admin, base_uri, template_id)
-    if not _known_error_link_works(actor, admin, template_id):
-        raise WorldError("E01 known-error article did not link to the problem")
-    _delete_quiet(admin, table, article_id)
-    left = admin.get_table(table, query=f"sys_id={article_id}", fields=["sys_id"], limit=1)
-    if left:
-        raise WorldError("the unused E01 article is still present")
-    return template_id
+    reason = _known_error_link_works(admin, problem_id, article_id, ci_id)
+    if reason:
+        raise WorldError(f"E01 known-error article did not link to the problem: {reason}")
+    return article_id
 
 
 def _create_article(
     actor: ServiceNowClient,
     base_id: str,
     *,
-    knowledge: bool = True,
-) -> tuple[str, str]:
-    if knowledge:
-        bodies = [
-            (
-                "kb_knowledge",
-                {
-                    "short_description": ARTICLE_SHORT,
-                    "kb_knowledge_base": base_id,
-                    "text": f"{CAUSE} {WORKAROUND}",
-                    "workflow_state": "draft",
-                },
-            )
-        ]
-    else:
-        bodies = [
-            (
-                "kb_template_known_error_article",
-                {
-                    "short_description": ARTICLE_SHORT,
-                    "kb_knowledge_base": base_id,
-                    "kb_description": CAUSE,
-                    "kb_cause": CAUSE,
-                    "kb_workaround": WORKAROUND,
-                    "workflow_state": "draft",
-                },
-            )
-        ]
-    last = "none"
-    for table, body in bodies:
-        try:
-            created = actor.create_record(table, body)
-        except ServiceNowError as exc:
-            last = str(exc.status_code if exc.status_code is not None else "none")
-            continue
-        return table, str(created.get("sys_id") or "")
-    raise WorldError(f"E01 article was not created HTTP {last}")
+    problem_id: str,
+    ci_id: str,
+) -> str:
+    try:
+        created = actor.create_record(
+            "kb_knowledge",
+            {
+                "short_description": ARTICLE_SHORT,
+                "kb_knowledge_base": base_id,
+                "text": f"{CAUSE} {WORKAROUND}",
+                "workflow_state": "draft",
+                "source": problem_id,
+                "cmdb_ci": ci_id,
+            },
+        )
+    except ServiceNowError as exc:
+        raise http_failure("E01 article", exc) from None
+    article_id = str(created.get("sys_id") or "")
+    if len(article_id) != 32:
+        raise WorldError("E01 article was not created")
+    return article_id
 
 
 def _publish(
@@ -524,52 +516,28 @@ def _publish(
 
 
 def _known_error_link_works(
-    actor: ServiceNowClient,
     admin: ServiceNowClient,
+    problem_id: str,
     article_id: str,
-) -> bool:
-    """The reference field points at kb_template_known_error_article. Probe it on a copy.
-
-    The real link is written on the E01 problem after this returns true. A rejected
-    reference leaves the field empty, which this read detects.
-    """
-    key = f"{MARKER}PROBE-article-link"
-    _delete_where(admin, "problem", f"correlation_id={key}")
-    try:
-        created = actor.create_record(
-            "problem",
-            {"short_description": key, "correlation_id": key},
-        )
-    except ServiceNowError as exc:
-        raise http_failure("article link probe", exc) from None
-    problem_id = str(created.get("sys_id") or "")
-    try:
-        try:
-            actor.update_record(
-                "problem",
-                problem_id,
-                {"primary_known_error_article": article_id},
-            )
-        except ServiceNowError as exc:
-            if exc.status_code in {400, 403}:
-                return False
-            raise http_failure("article link", exc) from None
-        read = admin.get_record(
-            "problem",
-            problem_id,
-            fields=["primary_known_error_article"],
-        )
-        return str(read.get("primary_known_error_article") or "") == article_id
-    finally:
-        _delete_quiet(admin, "problem", problem_id)
-        left = admin.get_table(
-            "problem",
-            query=f"sys_id={problem_id}",
-            fields=["sys_id"],
-            limit=1,
-        )
-        if left:
-            raise WorldError("article link probe problem is still present")
+    ci_id: str,
+) -> str:
+    """Empty when the article points at the problem and the CI and the problem field is empty."""
+    article = _read_article(admin, article_id)
+    problem = admin.get_record(
+        "problem",
+        problem_id,
+        fields=["primary_known_error_article"],
+    )
+    published = str(article.get("workflow_state") or "") == "published"
+    linked = str(article.get("source") or "") == problem_id
+    same_ci = str(article.get("cmdb_ci") or "") == ci_id
+    untouched = not str(problem.get("primary_known_error_article") or "")
+    if published and linked and same_ci and untouched:
+        return ""
+    return (
+        f"published={published} source_matches={linked} "
+        f"ci_matches={same_ci} article_field_empty={untouched}"
+    )
 
 
 def _mark_known_error(
@@ -578,12 +546,12 @@ def _mark_known_error(
     problem_id: str,
     article_id: str,
 ) -> None:
+    article = admin.get_record("kb_knowledge", article_id, fields=["number"])
+    number = str(article.get("number") or "")
+    if not number:
+        raise WorldError("E01 article number was empty")
     try:
-        actor.update_record(
-            "problem",
-            problem_id,
-            {"known_error": "true", "primary_known_error_article": article_id},
-        )
+        actor.update_record("problem", problem_id, {"known_error": "true"})
     except ServiceNowError as exc:
         raise http_failure("E01 known error", exc) from None
     read = admin.get_record(
@@ -593,8 +561,16 @@ def _mark_known_error(
     )
     if str(read.get("state") or "") != "103" or not _truthy(read.get("known_error")):
         raise WorldError("E01 problem did not stay at state 103 with known_error")
-    if str(read.get("primary_known_error_article") or "") != article_id:
-        raise WorldError("E01 primary known error article did not stick")
+    if str(read.get("primary_known_error_article") or ""):
+        raise WorldError("E01 known error article field was set")
+    try:
+        actor.update_record(
+            "problem",
+            problem_id,
+            {"work_notes": f"Known error article {number}"},
+        )
+    except ServiceNowError as exc:
+        raise http_failure("E01 article note", exc) from None
 
 
 def _import_history(
@@ -651,6 +627,7 @@ def _import_history(
         group_id=group_id,
         caller=caller,
     )
+    _note_closed_history(admin, settings, problem_id, seeded)
     save_manifest(manifest_path(), manifest)
 
 
@@ -681,7 +658,7 @@ def _payload(
         "cmdb_ci": cis[str(row["cmdb_ci"])],
         "caller_id": caller,
         "correlation_id": str(row["correlation_id"]),
-        "category": "software",
+        "category": str(row["category"]),
     }
     if row.get("parent") == "E01":
         values["parent"] = problem_id
@@ -879,6 +856,63 @@ def _verify_history(
     _check_rows(seeded, stored, problem_id, repair=True)
 
 
+def _note_closed_history(
+    admin: ServiceNowClient,
+    settings: Settings,
+    problem_id: str,
+    seeded: list[dict[str, Any]],
+) -> None:
+    """Name each Closed C01 incident on the problem so a person can follow it.
+
+    A Closed incident does not keep parent on this PDI. The line is the marker,
+    the incident number, and the correlation id. A line already in the journal
+    is not written again.
+    """
+    wanted = [row for row in seeded if row.get("parent") == "E01"]
+    if len(wanted) != 3:
+        raise WorldError(f"C01 history count {len(wanted)} expected 3")
+    correlations = [str(row["correlation_id"]) for row in wanted]
+    try:
+        stored = admin.get_records(
+            "incident",
+            query="correlation_idIN" + ",".join(correlations),
+            fields=["number", "correlation_id"],
+            page_size=20,
+            max_records=20,
+        )
+        journal = admin.get_table(
+            "sys_journal_field",
+            query=(
+                f"name=problem^element=work_notes^element_id={problem_id}"
+                f"^valueLIKE{HISTORY_NOTE}"
+            ),
+            fields=["value"],
+            limit=20,
+        )
+    except ServiceNowError as exc:
+        raise http_failure("history note read", exc) from None
+    numbers = {
+        str(row.get("correlation_id") or ""): str(row.get("number") or "") for row in stored
+    }
+    lines: list[str] = []
+    for correlation in correlations:
+        number = numbers.get(correlation) or ""
+        if not number:
+            raise WorldError(f"{correlation} has no incident number")
+        lines.append(history_note_line(number, correlation))
+    present = "\n".join(str(row.get("value") or "") for row in journal)
+    missing = [line for line in lines if line not in present]
+    if not missing:
+        print("history note: reused")
+        return
+    with open_client(settings, settings.sn_problem_user, settings.sn_problem_password) as actor:
+        try:
+            actor.update_record("problem", problem_id, {"work_notes": "\n".join(missing)})
+        except ServiceNowError as exc:
+            raise http_failure("history note", exc) from None
+    print(f"history note: lines={len(missing)}")
+
+
 def _stored_incidents(admin: ServiceNowClient) -> dict[str, dict[str, Any]]:
     rows = admin.get_records(
         "incident",
@@ -921,7 +955,7 @@ def _check_rows(
             raise WorldError(f"{correlation} incident_state {row.get('incident_state')}")
         if not _false(row.get("active")):
             raise WorldError(f"{correlation} is still active")
-        if str(row.get("category") or "") != "software":
+        if str(row.get("category") or "") != str(fixture["category"]):
             raise WorldError(f"{correlation} category {row.get('category')}")
         if str(row.get("business_service") or "") != "":
             raise WorldError(f"{correlation} business_service was set")
@@ -1204,7 +1238,7 @@ def _read_article(admin: ServiceNowClient, article_id: str) -> dict[str, Any]:
             return admin.get_record(
                 table,
                 article_id,
-                fields=["workflow_state", "short_description"],
+                fields=["workflow_state", "short_description", "source", "cmdb_ci"],
             )
         except ServiceNowError as exc:
             last = exc

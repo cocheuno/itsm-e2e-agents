@@ -8,10 +8,9 @@ from typing import Any
 
 from e2e.data.backtest import expected_outcomes, run_backtest
 from e2e.data.catalog import entries
-from e2e.data.fixtures import build_incidents, seeded_incidents
+from e2e.data.fixtures import build_incidents, change_world, seeded_incidents
 from e2e.data.world import (
     ANCHOR,
-    CATEGORY,
     CI_SPECIFIC,
     HOLD_FIX_FAILED,
     HOLD_RCA_UNCONFIRMED,
@@ -19,12 +18,20 @@ from e2e.data.world import (
     KIND_MAP,
     MARKER,
     SEED,
+    category_for_class,
 )
 from e2e.paths import ground_truth_path
 
 
 def problem_key(ci: str, mechanism: str) -> str:
-    digest = hashlib.sha256(f"{ci}|{CATEGORY}|{mechanism}".encode()).hexdigest()[:16]
+    _changes, ci_index = change_world()
+    info = ci_index.get(ci)
+    if info is None:
+        raise RuntimeError(f"{ci} is not in the change-world CI index")
+    category = category_for_class(info["ci_class"])
+    if not category:
+        raise RuntimeError(f"{ci} class {info['ci_class']} has no category")
+    digest = hashlib.sha256(f"{ci}|{category}|{mechanism}".encode()).hexdigest()[:16]
     return f"{MARKER}PRB-{digest}"
 
 

@@ -30,12 +30,12 @@ Repositories read on 2026-11-14: `cocheuno/itscm-451z-agent` (`c5cc185`), `evebr
 | Runs end to end | No | Yes, as one linear batch | Yes; S01 to S10 pass live |
 | Stack | `requests`, pydantic, pandas, scikit-learn; no agent framework (course rule) | `requests`, `python-dotenv`; flat modules, no packaging | LangGraph, SQLite checkpointer, `httpx`, pydantic |
 | LLM | Claude over raw HTTP (classifier only) | Any provider (`llm.py`), with a rule-based fallback for every step | Grok through `langchain-xai` |
-| What decides | Category model, priority matrix, routing table, seven tiered tools | Detection, RCA, known error, change, closure, reporting | Intake, risk, scheduling, authorization, release, deployment, review, metrics |
+| What decides | CI-class category table, priority matrix, routing table, seven tiered tools | Detection, RCA, known error, change, closure, reporting | Intake, risk, scheduling, authorization, release, deployment, review, metrics |
 | Entry point | `Registry.dispatch`; `rung0_poller` | `orchestrator.py --all`; each agent has `run(context)` and `check(context)` | `cm-agents change new`; `start_change` / `resume_change`; `run_intake(request)` |
 | State | None; local `logs/audit.jsonl` and `logs/approvals.jsonl` | `runs/<run_id>.json` | LangGraph checkpoints per thread |
 | Human gates | A named person approves each write proposal | Four keyboard gates (`input()`) | Four interrupts; approvals are made in ServiceNow |
 | Identity | One user: `itil`, `itil_admin` | One user: `itil`, `itil_admin`, `user_admin`, `problem_coordinator`; PDI admin also used at runtime | One user: `sn_change_write`, `audit_viewer`, `sn_incident_write`; admin only for seed and teardown |
-| Links written | None | `incident.parent` → problem; `problem.rfc` → change | `incident.u_caused_by` → change; `change.parent` |
+| Links written | None | Open incident: `incident.parent` → problem. Closed history: problem work note. `problem.rfc` → change | `incident.u_caused_by` → change; `change.parent` |
 | Instance changes | None | A Scripted REST endpoint that moves problem states and publishes articles | Two approved settings, restored by teardown; every customer update is classified |
 | Record marker | `[SYN]` in the description; `correlation_id` starts `SYN` | `correlation_id = PMSYNTH-<run_id>` | `correlation_id` starts `SYN-`; four seed prefixes count in metrics |
 | Synthetic world | 10 CIs; about 4,200 closed incidents (March to August 2026); one change-caused spike | 20 CIs; 200 incidents over 60 days; four planted problems, one decoy | About 300 CIs and 1,500 changes (November 2025 to October 2026) |
@@ -144,13 +144,13 @@ flowchart TD
 
 | Stage | Practice | Agent | Deterministic decision | LLM role | ServiceNow writes | Exit |
 |---|---|---|---|---|---|---|
-| Triage | Incident | Incident agent (to build) | Category from the trained model; priority from the impact × urgency matrix; group from the routing table | None | Category, priority, assignment group, work note | Incident assigned |
-| Known-error match | Incident | Incident agent | Published known error exists for the same CI and category, and text similarity is above threshold | None | Workaround comment, `parent` = problem, resolve | Resolved, or passed on |
+| Triage | Incident | Incident agent (to build) | Category from the CI-class table (`cmdb_ci_appl` → software, `cmdb_ci_linux_server` → hardware); priority from the impact × urgency matrix, with this PDI's data lookup where the two differ; group from the CI's service group | None | Category, priority, assignment group, work note | Incident assigned |
+| Known-error match | Incident | Incident agent | A published `kb_knowledge` row has `source` = the problem, `cmdb_ci` = the incident's CI, that problem has `known_error` true, the article text starts with `SYN-E2E-`, and text similarity is above a threshold fixed before the run | None | Workaround comment, `parent` = problem, resolve with close code Workaround provided. The article is not written onto the problem | Resolved, or passed on |
 | Restore | Incident | Resolver simulator (plain code) | Seeded outcome for incidents that are not part of a scenario | None | Resolve, close code | Resolved |
-| Detection | Problem | Detection agent | At least N incidents in a window on one CI or service; cohesion and purity give High confidence | None (summary only) | Problem record; `incident.parent` | Problem logged, or nothing |
+| Detection | Problem | Detection agent | At least N incidents in a window on one CI or service; cohesion and purity give High confidence | None (summary only) | Problem record; `incident.parent` on an open incident. A Closed incident cannot take `parent` on this PDI; its number and correlation id go on the problem work note | Problem logged, or nothing |
 | RCA | Problem | RCA agent | Evidence gathered by code; cited incidents must be linked | Proposes a mechanism from a closed list, with evidence references | Cause notes, work note | Hypothesis recorded |
 | Root-cause confirmation | Problem | Root-cause authority (new) | §5.4 | None | Work note with each signal; state move | Confirmed, or held |
-| Known error | Problem | Known Error agent | Article restates only the confirmed cause and the catalog workaround | Wording | `kb_knowledge`, `known_error` flag, workaround on open incidents | Published |
+| Known error | Problem | Known Error agent | Article restates only the confirmed cause and the catalog workaround | Wording | `kb_knowledge` with `source` = the problem and `cmdb_ci` = the CI, published; `known_error` true; a problem work note naming the article. No `m2m_kb_task`. The problem's primary known-error article field is not written | Published |
 | Fix decision | Problem | Error control (new, small) | Catalog entry exists for the mechanism and CI class; expected recurrences prevented exceed the policy threshold | None | Work note; `problem.rfc` after intake | RFC, or known error only |
 | Intake to review | Change | Existing change graph | Unchanged | Unchanged | Unchanged | Closed, rejected or held |
 | Authorization | Change | Change authority (new) | §5.3 | Rationale only | `sysapproval_approver` rows, comment | Approved, rejected or held |
@@ -168,7 +168,7 @@ Each contract is a pydantic model in the orchestrator's `contracts` module, with
 |---|---|
 | Trigger | Detection: at least `detect.min_incidents` incidents within `detect.window_days` on the same CI or service, confidence High. Or a major incident (path 3) |
 | Payload | Cluster key (CI or service, category), incident sys_ids, first and last opened times, cohesion, purity, proposed impact and urgency |
-| Links | `problem` record; each incident's `parent` = problem (**to verify**; fallback in §8) |
+| Links | `problem` record. An open incident's `parent` = problem. A Closed incident cannot be linked by `parent` on this PDI. Its history line on the problem work note is `SYN-E2E-HISTORY`, the incident number, and the correlation id |
 | Idempotency key | `SYN-E2E-PRB-<cluster key hash>`; an open problem with the same key absorbs new incidents instead of creating a second one |
 
 ### 4.2 Problem → Change (the RFC)
@@ -369,11 +369,11 @@ Polling, not events. `e2e tick` runs once: handle incidents, run detection over 
 | `incident.u_caused_by` | Failed change → incident | **Verified** (`docs/DISCOVERY.md` item 9) | — | — |
 | `sysapproval_approver`, two-step normal approval | Authorization | **Verified** for a human approver (item 5) | — | — |
 | Approval by a non-admin group member through REST | Change authority | **To verify** | Approve a probe change as the authority user | Scripted approval is not acceptable; if it fails, the design changes |
-| `incident.parent` → problem | Incident ↔ problem | **To verify** on this PDI (used on another PDI by `pm-agent`) | Set and read back; check the problem form's Incidents list | A custom reference field, approved like `u_caused_by` |
-| `incident.problem_id` | Incident ↔ problem | **Absent** on this PDI (item 9) | — | Use `parent` |
+| `incident.parent` → problem | Incident ↔ problem | **Verified.** An open incident keeps `parent`. A Closed incident does not: the problem user's write returns HTTP 200 and reads back empty, and the state stays Closed. The three C01 rows still have the parent the rules-off import stored | — | History is a work note on the problem. Each line is `SYN-E2E-HISTORY`, the incident number, and the correlation id. Reports read `parent` when it is filled, and that journal when the incident is Closed and `parent` is empty |
+| `incident.problem_id` | Incident ↔ problem | **Absent.** The column does not exist on this PDI, so out-of-box logic that queries it acts on every incident | — | Do not query it. Use `parent` for an open incident and the history work note for a Closed incident |
 | `problem.rfc` | Problem → change | **To verify** | Set and read back | A work note link plus `change.parent` |
 | `problem.state` writable through the Table API | Problem states | **To verify** (read-only on the other PDI) | Move a probe problem through each state | `pm-agent`'s Scripted REST endpoint, as an approved and manifested instance change |
-| Known Error knowledge base; publish by the problem user | Known errors | **To verify** | Create and publish a probe article | The same endpoint's `publish_article` |
+| Known-error link | Known errors | **Verified.** `kb_knowledge.source` = the problem, `kb_knowledge.cmdb_ci` = the CI, the article published, `problem.known_error` true, and a problem work note naming the article. No `m2m_kb_task`. The problem's primary known-error article field is not written | — | — |
 | `problem_coordinator` and incident roles for the new users | Least privilege | **To verify** | Role-by-role probe, as Phase 2 and 3 did for the change user | Record the smallest working set |
 | Incident close codes, problem resolution codes, state values | All | **To verify** | Read `sys_choice` | — |
 

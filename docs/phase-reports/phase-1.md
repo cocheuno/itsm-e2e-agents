@@ -1,6 +1,8 @@
 # Phase 1
 
-The Phase 1 gate passed (`e2e gate`, exit 0). The world is left seeded. This commit is local on `grok-build`. It was not pushed.
+The repair gate passed (`e2e gate`, exit 0). The world is left seeded. This commit is local on `grok-build`. It was not pushed.
+
+The first accepted gate is commit `03bbe97`. This commit records decisions A–G: the audited field restore, the close-script doctor count, the incident-update guard, the known-error link that does not write the primary article field, history notes that name the incident number and the correlation id, and the CI-class category table. The gate was run again after that work.
 
 ## Fork and settings
 
@@ -33,6 +35,8 @@ Before the gate, each of the three service passwords was checked without printin
 
 Only this repository changed. `../pm-agent-e2e` is clean, so it has no commit. `../itscm-451z-agent` and `../ChangeManagementAgent` were not modified. `../pm-agent` was not used.
 
+The first commit's file list is the one below. This commit adds `e2e/guard.py`, `tests/helpers/restore_audited_incident_fields.py`, and `tests/unit/test_no_article_field_write.py`, and it edits the seed, the doctor, the gate, the world data, discovery, and the architecture. The restore helper is a one-off. Pytest does not collect it.
+
 Modified:
 
 - `.env.example`
@@ -60,13 +64,15 @@ uv run pytest -q
 34 passed in 2.57s
 ```
 
+After the repair, the same two commands reported ruff clean and `37 passed in 5.33s`.
+
 ## Cross-repository proposal
 
 `pyproject.toml` depends on `cm-agents` with `[tool.uv.sources] cm-agents = { path = "../ChangeManagementAgent" }`. Phase 2 adds `../itscm-451z-agent` after packaging on `e2e-incident`. Phase 3 adds `../pm-agent-e2e` after a minimal `pyproject.toml` on branch `e2e`. Path sources do not pin commits, so `config/pins.json` is the pin and doctor checks it. Nothing uses an absolute path or a user name.
 
 ## Offline backtest
 
-`python -m e2e.data.backtest` printed `outcomes match`. Thresholds stayed `min=5`, `window=14`, `cohesion_high=0.3`, `cohesion_medium=0.2`, `purity_high=0.6`, `method=centroid`.
+History categories now come from the CI-class table: `cmdb_ci_appl` is `software`, and `cmdb_ci_linux_server` is `hardware`. `python -m e2e.data.backtest` was rerun after that change and printed `outcomes match`. Thresholds stayed `min=5`, `window=14`, `cohesion_high=0.3`, `cohesion_medium=0.2`, `purity_high=0.6`, `method=centroid`. No confirmation or detection outcome changed.
 
 Full world: 108 incidents, 10 candidates, detection precision 0.9. The eight-ticket decoy is the only detection false positive. The four-ticket burst and the noise open nothing.
 
@@ -179,9 +185,89 @@ Section 10, phase 1 gate, new:
 `teardown → seed` twice; counts match ground truth; customer-update check shows no orphan; `endpoint` is the approved new category
 ```
 
-## Gate
+## Repair gate
 
 Command, from this repository, with `UV_PROJECT_ENVIRONMENT` set to `%LOCALAPPDATA%\venvs\itsm-e2e-agents`:
+
+```
+uv run e2e gate
+```
+
+Exit 0. The world left by this run is the seeded world.
+
+Before the gate, a passing `cm-agents scenario run S06` had deleted the 101 `SYN-E2E` incidents. Its scenario query includes that prefix. The eight end-to-end system notes left with those rows. Change-seed notes stayed at 1476 and neither-project notes stayed at 2412. The gate loaded the end-to-end layer again. `cm-agents scenario run S09` had already passed in 75.94s, and its cleanup found nothing left to delete. The gate runs S09 through pytest, which does not call that cleanup.
+
+One seed attempt before this passing run created the E01 problem, published the article, and then stopped with `E01 known-error article did not link to the problem`. The checker read only `workflow_state` and `short_description`, so `source` and `cmdb_ci` compared empty. The article already held both, and `primary_known_error_article` was not set. The read now requests `source` and `cmdb_ci`. A failure names which boolean failed and does not print an identifier. This gate's first teardown deleted that partial problem and article.
+
+Seed 1 and seed 2 each imported 101, skipped 0, and settled at 0. Each printed `history note: lines=3` and `outside incident updates=0`. The reseed reused the E01 problem, imported 0, skipped 101, settled at 0, and printed `history note: reused` and `outside incident updates=0`. Counts after seed 1, seed 2, and the reseed were the same:
+
+```
+incidents=101 problems=1 articles=1 changes=0 endpoint_definitions=1 endpoint_operations=2
+```
+
+The change seed stayed `SYN-CHG-=1500`, `SYN-INC-=164`, `syn-ci=296`. The guard printed `gate outside incident updates=0` before `cm-agents doctor` and S09.
+
+Authority probe:
+
+```
+approval negative change status=403 state=requested
+approval negative incident status=404 state=requested
+approval negative problem status=200 state=requested
+approval authority wanted=-3 read=-3
+approval authority wanted=-2 read=-2
+approval probe: scheduled=-2 creator_is_change_user=true creator_is_authority=false approved_rows=2
+```
+
+Known-error probe:
+
+```
+known error close code: parent_stuck=true close_write=403 close_stuck=false result=refused
+gate probe residue: {'incidents': 0, 'problems': 0, 'changes': 0, 'articles': 0}
+```
+
+Customer updates:
+
+```
+update_xml rows=1326
+update_xml hand_made=3
+update_xml approved=2
+update_xml endpoint=36
+update_xml manifest=1282
+update_xml platform=3
+update_xml orphan=0
+```
+
+The live endpoint count is still one definition and two operations. Earlier installs leave customer-update rows. Both approved names are present. Created-by on the printed rows was `admin`.
+
+`e2e doctor` inside the gate:
+
+```
+pins: match
+admin login: ok
+instance build: glide.buildname and glide.buildtag were not found; glide.war=glide-australia-02-11-2026__patch3-05-25-2026_06-12-2026_1106.zip
+email: off
+change seed: SYN-CHG-=1500 SYN-INC-=164 syn-ci=296
+problem close would resolve: 0 script=Update Incident when Problem closes query=state=3^hold_reason=3
+change agent login: ok
+incident user login: ok
+problem user login: ok
+authority user login: ok
+doctor: ok
+```
+
+`cm-agents doctor` exited 0. Its login line was redacted. The last line was `agent user: present`. S09:
+
+```
+1 passed in 29.09s
+```
+
+The gate then printed `gate: pass`.
+
+The field restore, the one incident left Resolved, and the S06 transport failure are in `docs/DISCOVERY.md` under `## Repair`. One neither-project incident stays active while Resolved. It is the incident the close script resolved during the Phase 0 walk. Restoring it was refused, because the next problem closure could resolve it again. Before the first wave, the count of incidents active while Closed or Resolved was 0. After the restore it is 1, and that row is the exception. `active=true^priorityIN1,2` is 21, all with an empty correlation.
+
+## First accepted gate
+
+Command, from this repository, with `UV_PROJECT_ENVIRONMENT` set to `%LOCALAPPDATA%\venvs\itsm-e2e-agents`. These counts are the first accepted run, commit `03bbe97`. The repair gate above is the world that is seeded now.
 
 ```
 uv run e2e gate
@@ -257,7 +343,8 @@ The gate then printed `gate: pass`.
 ## Deviations
 
 - `noise-syn-hr-time` gets signal (c) `stale_feature_flag` and no other signal. It does not open a candidate. The mapped in-window change is `SYN-CHG-0108` on `syn-hr-time`, closed `2026-10-13 17:00:00`, summary `SYN reload feature flag snapshot`. Other closed changes on that CI in the window are unmapped. This is a measured side effect, not a detection bug.
-- Publishing the E01 known error makes the platform add a known-error work note on matching history incidents and set `active` true and priority 4. A Table API write does not clear `active` after that. The seed sends `incident_state` 6, waits until the active count stays still, and posts those rows again through the import set with business rules off. The work notes stay. Detection reads `short_description`.
+- On the first accepted gate, publishing the E01 known error wrote `primary_known_error_article`. That queued `problem.ke_associated`, and the script action `Show primary KE article in Inc worknotes` updated incidents. The seed waited and reimported. This commit does not write that field. The repair gate settled at 0, and the three seeds each printed `outside incident updates=0`. The settle loop remains. System work notes from the earlier wave were left in place: 1476 on the change seed and 2412 on incidents that belong to neither project. The eight end-to-end notes left when S06 deleted those incidents.
+- A passing `cm-agents scenario run` deletes `SYN-E2E-` incidents, because its scenario query includes that prefix. The Phase 1 gate runs S09 as pytest and does not call that cleanup.
 - On this PDI a password with no special character is accepted on create (HTTP 200) and then fails login with HTTP 401. `glide.enable.password_policy` is true. The same note is in `docs/DISCOVERY.md` and `.env.example`.
 - Close code `Known error` is still refused (HTTP 403) when the probe incident's parent is the seeded E01 problem. The probe incident was created and deleted. History stays on `Solution provided` and state Resolved (6).
 - The problem user's negative approval returned HTTP 200. The approval row stayed `requested`, which is what the probe requires.
