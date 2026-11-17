@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("seed", help="Load the e2e world, the endpoint, and the service users")
     sub.add_parser("teardown", help="Remove the e2e world and leave the change seed")
     sub.add_parser("gate", help="Run the Phase 1 gate and leave the world seeded")
+    sub.add_parser("tick", help="Handle arrivals that are due on the simulated clock")
+    sub.add_parser("phase2", help="Run the Phase 2 gate and leave the arrivals resolved")
     args = parser.parse_args(argv)
     try:
         settings = load_settings()
@@ -65,6 +67,15 @@ def main(argv: list[str] | None = None) -> int:
             from e2e.teardown import run_teardown
 
             return run_teardown(settings)
+        if args.command == "tick":
+            from e2e.tick import run_tick
+
+            run_tick(settings)
+            return 0
+        if args.command == "phase2":
+            from e2e.phase2 import run_phase2
+
+            return run_phase2(settings)
         from e2e.gate import run_gate
 
         return run_gate(settings)

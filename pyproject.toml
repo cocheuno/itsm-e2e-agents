@@ -5,6 +5,7 @@ description = "Agents-only incident, problem, and change workflow on one Service
 requires-python = ">=3.12"
 dependencies = [
     "cm-agents",
+    "itscm-451z-agent",
     "pydantic>=2",
 ]
 
@@ -19,6 +20,7 @@ dev = [
 
 [tool.uv.sources]
 cm-agents = { path = "../ChangeManagementAgent" }
+itscm-451z-agent = { path = "../itscm-451z-agent", editable = true }
 
 [build-system]
 requires = ["hatchling"]
