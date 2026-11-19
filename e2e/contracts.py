@@ -8,6 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from e2e.data.world import MARKER
+
 CONTRACT_VERSION: Literal["1"] = "1"
 CASE_ID = re.compile(r"^E2E-[0-9a-f]{8}$")
 DeploymentMethod = Literal["automated", "manual"]
@@ -142,10 +144,11 @@ class DeploymentFailureLink(BaseModel):
 
 def problem_idempotency_key(cluster_key: str) -> str:
     digest = hashlib.sha256(cluster_key.encode("utf-8")).hexdigest()[:16]
-    return f"SYN-E2E-PRB-{digest}"
+    return f"{MARKER}PRB-{digest}"
 
 
 def change_idempotency_key(case_id: str, attempt: int) -> str:
+    """Thread id passed to start_change. cm_agents requires the SYN- prefix."""
     return f"SYN-E2E-{case_id}-CHG-{attempt}"
 
 

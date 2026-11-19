@@ -89,8 +89,10 @@ def test_problem_state_fields_follow_the_model() -> None:
 def test_endpoint_scripts_use_this_build_marker() -> None:
     move = move_script()
     publish = publish_script()
-    assert "SYN-E2E-" in move
-    assert "SYN-E2E-" in publish
+    assert "E2E-" in move
+    assert "E2E-" in publish
+    assert "SYN-E2E-" not in move
+    assert "SYN-E2E-" not in publish
     assert "PMSYNTH" not in move
     assert "PMSYNTH" not in publish
     assert "problem_coordinator" in move

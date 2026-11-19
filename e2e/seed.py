@@ -43,8 +43,8 @@ FIELDS = INCIDENT_FIELDS + (
 )
 CAUSE = "Log rotation stopped. The log directory filled."
 WORKAROUND = "Retry the page. Clear the filled log files at the next maintenance window."
-E01_SHORT = "SYN-E2E- Log rotation stopped on syn-store-cdn"
-ARTICLE_SHORT = "SYN-E2E- Known error for syn-store-cdn"
+E01_SHORT = f"{MARKER} Log rotation stopped on syn-store-cdn"
+ARTICLE_SHORT = f"{MARKER} Known error for syn-store-cdn"
 DESK = "SYN Service Desk"
 # A rules-on parent write can reopen a closed incident. Wait until that
 # count stays still, then reimport with business rules off.
@@ -588,7 +588,7 @@ def _import_history(
         str(row.get("correlation_id") or "")
         for row in admin.get_records(
             "incident",
-            query="correlation_idSTARTSWITHSYN-E2E-INC",
+            query=f"correlation_idSTARTSWITH{MARKER}INC",
             fields=["correlation_id"],
             page_size=200,
             max_records=500,
@@ -916,7 +916,7 @@ def _note_closed_history(
 def _stored_incidents(admin: ServiceNowClient) -> dict[str, dict[str, Any]]:
     rows = admin.get_records(
         "incident",
-        query="correlation_idSTARTSWITHSYN-E2E-INC",
+        query=f"correlation_idSTARTSWITH{MARKER}INC",
         fields=[
             "sys_id",
             "correlation_id",
@@ -1080,7 +1080,7 @@ def _sweep(
         manifest,
         ledger,
         "problem",
-        "correlation_idSTARTSWITHSYN-E2E-PRB",
+        f"correlation_idSTARTSWITH{MARKER}PRB",
         "records",
         "problem",
         record_table="problem",
@@ -1090,7 +1090,7 @@ def _sweep(
         manifest,
         ledger,
         "kb_knowledge",
-        "short_descriptionSTARTSWITHSYN-E2E-",
+        f"short_descriptionSTARTSWITH{MARKER}",
         "records",
         ARTICLE_SHORT,
         record_table="kb_knowledge",
@@ -1100,7 +1100,7 @@ def _sweep(
         manifest,
         ledger,
         "kb_template_known_error_article",
-        "short_descriptionSTARTSWITHSYN-E2E-",
+        f"short_descriptionSTARTSWITH{MARKER}",
         "records",
         ARTICLE_SHORT,
         record_table="kb_template_known_error_article",
@@ -1110,7 +1110,7 @@ def _sweep(
         manifest,
         ledger,
         "incident",
-        "correlation_idSTARTSWITHSYN-E2E-INC",
+        f"correlation_idSTARTSWITH{MARKER}INC",
         "records",
         "incident",
         record_table="incident",

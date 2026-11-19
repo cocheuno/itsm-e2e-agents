@@ -2,7 +2,7 @@
 
 Adapted from the pm-agent endpoint. It still evaluates the problem state model, still
 requires problem_coordinator for a move, and still writes only the short field list.
-It accepts this build's marker, SYN-E2E-, and refuses any other record. Phase 0 installs
+It accepts this build's persistent marker, E2E-, and refuses any other record. Phase 0 installs
 it for a probe and removes it. From Phase 1, seed installs it and teardown removes it.
 """
 
@@ -13,11 +13,11 @@ from typing import Any
 
 from cm_agents.servicenow.client import ServiceNowClient, ServiceNowError
 
-ENDPOINT_NAME = "[SYN-E2E] Problem State"
+ENDPOINT_NAME = "[E2E] Problem State"
 SERVICE_ID = "syne2e_problem_state"
-PROBLEM_TAG = "SYN-E2E-"
-ARTICLE_TAG = "SYN-E2E-"
-PROBE_TAG = "SYN-E2E-PROBE"
+PROBLEM_TAG = "E2E-"
+ARTICLE_TAG = "E2E-"
+PROBE_TAG = "E2E-PROBE"
 ALLOWED_FIELDS = [
     "cause_notes",
     "workaround",
@@ -190,7 +190,7 @@ def _definition(admin: ServiceNowClient) -> str:
         "name": ENDPOINT_NAME,
         "service_id": SERVICE_ID,
         "active": "true",
-        "short_description": "SYN-E2E endpoint for tagged problem moves and article publish",
+        "short_description": "E2E endpoint for tagged problem moves and article publish",
     }
     rows = _definitions(admin)
     if rows:
@@ -212,6 +212,17 @@ def _definitions(admin: ServiceNowClient) -> list[dict[str, Any]]:
 def _base_uri(admin: ServiceNowClient, definition_id: str) -> str:
     row = admin.get_record("sys_ws_definition", definition_id, fields=["base_uri"])
     return str(row.get("base_uri") or "")
+
+
+def endpoint_base(admin: ServiceNowClient) -> str:
+    """Base path of the one installed endpoint. Empty when it is missing."""
+    rows = _definitions(admin)
+    if len(rows) != 1:
+        return ""
+    base = str(rows[0].get("base_uri") or "")
+    if base:
+        return base
+    return _base_uri(admin, str(rows[0].get("sys_id") or ""))
 
 
 def _operation(

@@ -31,6 +31,9 @@ packages = ["e2e"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
+markers = [
+    "live: needs the PDI or the LLM",
+]
 
 [tool.ruff]
 target-version = "py312"

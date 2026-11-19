@@ -20,7 +20,11 @@ Phase 0 depends on `cm-agents` by path: `../ChangeManagementAgent`. Phase 2 adds
 
 ## The one approved instance change
 
-The Scripted REST endpoint in `e2e/state_api.py` is the one approved instance change. It evaluates the problem state model, requires `problem_coordinator` for a move, and writes only `cause_notes`, `workaround`, `fix_notes`, `close_notes`, `resolution_code`, and `assigned_to`. It accepts `correlation_id` or `short_description` values that start with `SYN-E2E-`. It refuses every other record, including `PMSYNTH`.
+The Scripted REST endpoint in `e2e/state_api.py` is the one approved instance change. It evaluates the problem state model, requires `problem_coordinator` for a move, and writes only `cause_notes`, `workaround`, `fix_notes`, `close_notes`, `resolution_code`, and `assigned_to`. It accepts `correlation_id` or `short_description` values that start with `E2E-`. It refuses every other record, including `PMSYNTH`.
+
+The known-error cutoff was set from two labelled pairs before any live tick. The same-CI condition does most of the work.
+
+Do not run a `cm-agents` scenario while an end-to-end scenario is in progress, because its clean-up would delete that scenario's change.
 
 Phase 0 installed it as admin for the probe and removed it before the phase ended. From Phase 1, `e2e seed` installs it, records it in the manifest and the config history, and `e2e teardown` removes it.
 
@@ -33,6 +37,7 @@ Grants were added one role at a time. `snc_basic_auth_api_access` is reserved fo
 - Incident create succeeded with no direct role.
 - On an incident this user did not create, category, assignment group, parent, and a comment stuck with no role. Impact and urgency did not both stick until `sn_incident_write`. Work notes then stuck with that same role. `itil` was not required.
 - Resolve with close code `Known error` returned HTTP 403 for the incident user and for admin. The business rule is `Check if Known error article required`. The same user, still with only `sn_incident_write`, resolved the incident to state `6` with close code `Solution provided`.
+- Reading the published known-error article and the problem it points at needed one more role. `problem_task_analyst` is that role. `itil` was not added. The tick uses the incident user for those reads. Admin is not used at run time.
 - Problem create, `incident.parent`, `problem.rfc`, known error, `primary_known_error_article`, and the incident link (parent plus a work note) succeeded with `problem_coordinator`. `itil` was not added.
 - Table API article publish returned HTTP 200 and stayed `draft`, so `knowledge`, `sn_km_contribute`, and `knowledge_admin` were not added. `publish_article` published the tagged article with `problem_coordinator` only.
 - The authority probe had no direct role (`direct_role_count=0`) and `web_service_access_only=true`. The probe inserted Change Management and CAB Approval. The membership read-back also listed Conditional Script Writer. `approver_user`, `sn_change_read`, and `itil` were not added.

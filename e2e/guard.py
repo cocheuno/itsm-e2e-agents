@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from cm_agents.servicenow.client import ServiceNowClient, ServiceNowError
 
+from e2e.data.world import MARKER
 from e2e.errors import WorldError
 from e2e.instance import http_failure
+from e2e.scenario_records import require_thread_id
 
 _PAGE = 200
 
@@ -22,7 +24,7 @@ def e2e_incident_ids(client: ServiceNowClient) -> set[str]:
     try:
         rows = client.get_records(
             "incident",
-            query="correlation_idSTARTSWITHSYN-E2E-INC",
+            query=f"correlation_idSTARTSWITH{MARKER}INC",
             fields=["sys_id"],
             page_size=200,
             max_records=500,
@@ -30,6 +32,28 @@ def e2e_incident_ids(client: ServiceNowClient) -> set[str]:
     except ServiceNowError as exc:
         raise http_failure("e2e incidents", exc) from None
     return {str(row.get("sys_id") or "") for row in rows if row.get("sys_id")}
+
+
+def deployment_incident_ids(client: ServiceNowClient, thread_ids: set[str]) -> set[str]:
+    """The incident a failed deployment opens uses the scenario's own thread id.
+
+    That row is inside the run. Other incidents updated in the window are not.
+    """
+    found: set[str] = set()
+    for thread_id in thread_ids:
+        query = f"correlation_id={require_thread_id(thread_id)}"
+        try:
+            rows = client.get_records(
+                "incident",
+                query=query,
+                fields=["sys_id"],
+                page_size=20,
+                max_records=20,
+            )
+        except ServiceNowError as exc:
+            raise http_failure("deployment incident", exc) from None
+        found.update(str(row.get("sys_id") or "") for row in rows if row.get("sys_id"))
+    return found
 
 
 def latest_incident_stamp(client: ServiceNowClient) -> str:

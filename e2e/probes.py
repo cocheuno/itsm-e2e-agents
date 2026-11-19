@@ -15,7 +15,7 @@ from e2e.instance import http_failure, open_client
 from e2e.paths import repo_root
 from e2e.settings import Settings
 
-PROBE = "SYN-E2E-PROBE"
+PROBE = "E2E-PROBE"
 STATE_ASSESS = "-4"
 STATE_AUTHORIZE = "-3"
 STATE_SCHEDULED = "-2"
@@ -355,12 +355,12 @@ def _write_discovery(settings: Settings, evidence: dict[str, Any]) -> None:
         [
             _HEADING,
             "",
-            "Can the incident user resolve a SYN-E2E-PROBE incident with close code"
+            "Can the incident user resolve an E2E-PROBE incident with close code"
             ' "Known error" when its parent is the seeded E01 problem?',
             "",
             "Calls:",
             "",
-            "- `POST /api/now/table/incident` as the incident user, marker `SYN-E2E-PROBE`",
+            "- `POST /api/now/table/incident` as the incident user, marker `E2E-PROBE`",
             "- `PATCH` parent to the E01 problem",
             "- `PATCH` state `6` and close code `Known error`",
             "- `DELETE` the probe incident",

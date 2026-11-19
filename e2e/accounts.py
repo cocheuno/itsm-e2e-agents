@@ -29,15 +29,25 @@ def ensure_service_users(
 ) -> dict[str, str]:
     """Create the three users when they are absent. Return label to sys_id."""
     specs = (
-        ("incident", settings.sn_incident_user, settings.sn_incident_password, "sn_incident_write"),
-        ("problem", settings.sn_problem_user, settings.sn_problem_password, "problem_coordinator"),
-        ("authority", settings.sn_authority_user, settings.sn_authority_password, ""),
+        (
+            "incident",
+            settings.sn_incident_user,
+            settings.sn_incident_password,
+            ("sn_incident_write", "problem_task_analyst"),
+        ),
+        (
+            "problem",
+            settings.sn_problem_user,
+            settings.sn_problem_password,
+            ("problem_coordinator",),
+        ),
+        ("authority", settings.sn_authority_user, settings.sn_authority_password, ()),
     )
     ids: dict[str, str] = {}
-    for label, user_name, password, role in specs:
+    for label, user_name, password, roles in specs:
         sys_id = _ensure_user(admin, user_name, password, label)
         ledger.create("sys_user", sys_id, f"{label} user")
-        if role:
+        for role in roles:
             role_id = _ensure_role(admin, sys_id, role)
             ledger.create("sys_user_has_role", role_id, role)
         if label == "authority":

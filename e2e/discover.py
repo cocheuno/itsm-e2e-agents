@@ -2727,7 +2727,7 @@ def _residue(client: ServiceNowClient) -> list[dict[str, Any]]:
             results.append({"table": table, "count": None, "status": exc.status_code})
             continue
         results.append({"table": table, "count": len(rows)})
-    for marker, label in ((ENDPOINT_MARKER, "SYN-E2E-PROBE"),):
+    for marker, label in ((ENDPOINT_MARKER, ENDPOINT_MARKER),):
         for table, query in (
             ("problem", f"correlation_idSTARTSWITH{marker}^ORshort_descriptionSTARTSWITH{marker}"),
             ("incident", f"correlation_idSTARTSWITH{marker}^ORshort_descriptionSTARTSWITH{marker}"),

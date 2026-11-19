@@ -6,11 +6,11 @@ from e2e.seed import _needs_reimport, _next_settle, _payload
 def test_history_payload_resolves_incident_state_and_sets_parent_only_for_e01() -> None:
     row = {
         "opened_at": "2026-10-06 15:00:00",
-        "short_description": "SYN-E2E- checkout logs stopped",
+        "short_description": "E2E- checkout logs stopped",
         "description": "The checkout log directory filled.",
         "close_notes": "Cleared at the next window.",
         "cmdb_ci": "syn-store-checkout",
-        "correlation_id": "SYN-E2E-INC-C02-001",
+        "correlation_id": "E2E-INC-C02-001",
         "parent": "",
         "category": "software",
     }

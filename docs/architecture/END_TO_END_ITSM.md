@@ -145,7 +145,7 @@ flowchart TD
 | Stage | Practice | Agent | Deterministic decision | LLM role | ServiceNow writes | Exit |
 |---|---|---|---|---|---|---|
 | Triage | Incident | Incident agent (to build) | Category from the CI-class table (`cmdb_ci_appl` → software, `cmdb_ci_linux_server` → hardware); priority from the impact × urgency matrix, with this PDI's data lookup where the two differ; group from the CI's service group | None | Category, priority, assignment group, work note | Incident assigned |
-| Known-error match | Incident | Incident agent | A published `kb_knowledge` row has `source` = the problem, `cmdb_ci` = the incident's CI, that problem has `known_error` true, the article text starts with `SYN-E2E-`, and text similarity is above a threshold fixed before the run | None | Workaround comment, `parent` = problem, resolve with close code Workaround provided. The article is not written onto the problem | Resolved, or passed on |
+| Known-error match | Incident | Incident agent | A published `kb_knowledge` row has `source` = the problem, `cmdb_ci` = the incident's CI, that problem has `known_error` true, the article short description starts with `E2E-`, and text similarity is above a threshold fixed before the run | None | Workaround comment, `parent` = problem, resolve with close code Workaround provided. The article is not written onto the problem | Resolved, or passed on |
 | Restore | Incident | Resolver simulator (plain code) | Seeded outcome for incidents that are not part of a scenario | None | Resolve, close code | Resolved |
 | Detection | Problem | Detection agent | At least N incidents in a window on one CI or service; cohesion and purity give High confidence | None (summary only) | Problem record; `incident.parent` on an open incident. A Closed incident cannot take `parent` on this PDI; its number and correlation id go on the problem work note | Problem logged, or nothing |
 | RCA | Problem | RCA agent | Evidence gathered by code; cited incidents must be linked | Proposes a mechanism from a closed list, with evidence references | Cause notes, work note | Hypothesis recorded |
@@ -168,8 +168,8 @@ Each contract is a pydantic model in the orchestrator's `contracts` module, with
 |---|---|
 | Trigger | Detection: at least `detect.min_incidents` incidents within `detect.window_days` on the same CI or service, confidence High. Or a major incident (path 3) |
 | Payload | Cluster key (CI or service, category), incident sys_ids, first and last opened times, cohesion, purity, proposed impact and urgency |
-| Links | `problem` record. An open incident's `parent` = problem. A Closed incident cannot be linked by `parent` on this PDI. Its history line on the problem work note is `SYN-E2E-HISTORY`, the incident number, and the correlation id |
-| Idempotency key | `SYN-E2E-PRB-<cluster key hash>`; an open problem with the same key absorbs new incidents instead of creating a second one |
+| Links | `problem` record. An open incident's `parent` = problem. A Closed incident cannot be linked by `parent` on this PDI. Its history line on the problem work note is `E2E-HISTORY`, the incident number, and the correlation id |
+| Idempotency key | `E2E-PRB-<cluster key hash>`; an open problem with the same key absorbs new incidents instead of creating a second one |
 
 ### 4.2 Problem → Change (the RFC)
 
@@ -191,7 +191,7 @@ Each contract is a pydantic model in the orchestrator's `contracts` module, with
 | | |
 |---|---|
 | Trigger | Root cause confirmed, known error published, catalog entry found, benefit above threshold |
-| Links | `problem.rfc` = change (**to verify**); the change's `correlation_id` carries the case id |
+| Links | `problem.rfc` = change (set and read back on E02; deleting the change clears it); the change's `correlation_id` carries the case id |
 | Idempotency key | `SYN-E2E-<case>-CHG-<attempt>` |
 
 ### 4.3 Change → Problem and Incident
@@ -208,9 +208,11 @@ Already built: a failed PROD deployment opens an incident with `u_caused_by` = c
 
 ### 4.5 Correlation and markers
 
-- **Case id:** `E2E-<8 hex>`, created when a problem is logged or a major incident is declared.
-- **Every record the workflow creates** has `correlation_id` starting `SYN-E2E-<case>`. This keeps it outside the change repository's four seed prefixes, so its metrics are unaffected and `remove_scenario_records` can delete it.
-- **The change thread id** is the change's `correlation_id`, as today.
+- **Case id:** `E2E-<8 hex>`, created when a problem is logged or a major incident is declared. It links a persistent problem to the change that runs for it.
+- **Records that persist between runs** use `E2E-` and nothing that starts with `SYN`. ServiceNow `STARTSWITH` is case-insensitive. This covers seeded history incidents, arrivals, problems, and known-error articles, in `correlation_id` and in the article short description. History work notes use `E2E-HISTORY`. The problem idempotency key is `E2E-PRB-<cluster key hash>`. These rows sit outside the change repository's four seed prefixes and outside `remove_scenario_records`, which matches `correlation_id` starting with `SYN-`.
+- **Records created through `cm_agents`** keep `SYN-E2E-`. The thread id passed to `start_change` is `SYN-E2E-<case>-CHG-<attempt>`. That id is the change's `correlation_id`. The incident a failed deployment opens uses the same id. These rows exist only while an end-to-end scenario runs. The scenario deletes them before it returns, on pass and on failure.
+- **Do not run a `cm-agents` scenario while an end-to-end scenario is in progress.** That clean-up would delete the end-to-end scenario's change.
+- A reader follows the problem `E2E-PRB-...` to its change in ServiceNow: `problem.rfc` is the change, and the problem work notes name the thread id `SYN-E2E-<case>-CHG-<attempt>`.
 - The incident repository's "starts with `SYN`" query and `pm-agent`'s `PMSYNTH` tag are not used on the shared PDI.
 
 ---
@@ -225,7 +227,7 @@ Approval is **delegated change authority**: an agent holds the authority that po
 
 | ServiceNow user | Duty | Roles (starting point; **to verify**) |
 |---|---|---|
-| `syn.svc.incident_agent` | Triage, workaround, resolve | `sn_incident_write` |
+| `syn.svc.incident_agent` | Triage, workaround, resolve | `sn_incident_write`, `problem_task_analyst` |
 | `syn.svc.problem_agent` | Problems, known errors, RFC request | `problem_coordinator`, knowledge contribution on the Known Error base |
 | `syn.svc.change_agents` (existing) | Intake, risk, scheduling, deployment, review | Unchanged |
 | `syn.svc.change_authority` | Approves or rejects changes; nothing else | Member of each synthetic assignment group's approver set and of CAB Approval; `approver_user` |
@@ -368,10 +370,10 @@ Polling, not events. `e2e tick` runs once: handle incidents, run detection over 
 |---|---|---|---|---|
 | `incident.u_caused_by` | Failed change → incident | **Verified** (`docs/DISCOVERY.md` item 9) | — | — |
 | `sysapproval_approver`, two-step normal approval | Authorization | **Verified** for a human approver (item 5) | — | — |
-| Approval by a non-admin group member through REST | Change authority | **To verify** | Approve a probe change as the authority user | Scripted approval is not acceptable; if it fails, the design changes |
-| `incident.parent` → problem | Incident ↔ problem | **Verified.** An open incident keeps `parent`. A Closed incident does not: the problem user's write returns HTTP 200 and reads back empty, and the state stays Closed. The three C01 rows still have the parent the rules-off import stored | — | History is a work note on the problem. Each line is `SYN-E2E-HISTORY`, the incident number, and the correlation id. Reports read `parent` when it is filled, and that journal when the incident is Closed and `parent` is empty |
+| Approval by a non-admin group member through REST | Change authority | **Verified** on E02. The authority user approved the requested row whose approver is that user. Assess stayed at Authorize, then Authorize stayed at Scheduled | — | Scripted approval is not acceptable |
+| `incident.parent` → problem | Incident ↔ problem | **Verified.** An open incident keeps `parent`. A Closed incident does not: the problem user's write returns HTTP 200 and reads back empty, and the state stays Closed. The three C01 rows still have the parent the rules-off import stored | — | History is a work note on the problem. Each line is `E2E-HISTORY`, the incident number, and the correlation id. Reports read `parent` when it is filled, and that journal when the incident is Closed and `parent` is empty |
 | `incident.problem_id` | Incident ↔ problem | **Absent.** The column does not exist on this PDI, so out-of-box logic that queries it acts on every incident | — | Do not query it. Use `parent` for an open incident and the history work note for a Closed incident |
-| `problem.rfc` | Problem → change | **To verify** | Set and read back | A work note link plus `change.parent` |
+| `problem.rfc` | Problem → change | **Verified** on E02. Set while the change was in Assess and read back after close. The problem work note is `Change {number}. Thread {thread id}.` Deleting the change clears `rfc` | — | A work note link plus `change.parent` |
 | `problem.state` writable through the Table API | Problem states | **To verify** (read-only on the other PDI) | Move a probe problem through each state | `pm-agent`'s Scripted REST endpoint, as an approved and manifested instance change |
 | Known-error link | Known errors | **Verified.** `kb_knowledge.source` = the problem, `kb_knowledge.cmdb_ci` = the CI, the article published, `problem.known_error` true, and a problem work note naming the article. No `m2m_kb_task`. The problem's primary known-error article field is not written | — | — |
 | `problem_coordinator` and incident roles for the new users | Least privilege | **To verify** | Role-by-role probe, as Phase 2 and 3 did for the change user | Record the smallest working set |

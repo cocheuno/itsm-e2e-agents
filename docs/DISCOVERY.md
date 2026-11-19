@@ -1207,3 +1207,15 @@ The live arrival `INC0012786` (correlation `SYN-E2E-INC-E01-ARR-001`) was resolv
 The incident user's query for `kb_knowledge` and for `problem` returns HTTP 200 and zero rows. The same queries as admin return the seeded article and the seeded problem. The tick reads those tables as admin and writes the incident as the incident user. A group lookup by name as the incident user returns HTTP 200.
 
 Incident text is scored on this machine with term-count cosine. It is not sent to an LLM. The threshold 0.20 sat under a printer-decoy fixture (score 0.318). The E01 fixture pair scores 0.5, so the threshold is the midpoint of those two scores. It was fixed before this tick. The seeded article body is the plain fixture text, and the arrival matched it.
+
+## Incident read of the known-error article
+
+The reseeded article is published and its problem is a known error. With only `sn_incident_write` (plus the roles that role already contains), the incident user gets HTTP 200 and zero rows for `kb_knowledge` and for `problem`.
+
+The Known Error knowledge base can-read user criteria names three roles: `itil`, `problem_task_analyst`, and `sn_problem_write`. The `problem` read ACLs name `sn_problem_read`, and also `itil` with `problem_task_analyst`. `knowledge` is not on that criteria.
+
+Each candidate was granted, read with a new client, and revoked when it did not qualify. `knowledge`, `knowledge_group_member`, and `knowledge_view_as` still returned zero articles and zero problems. `sn_problem_read` returned the problem and returned zero articles, so it was revoked. `problem_task_analyst` returned the published article (source, CI, and text filled) and the problem (number, workaround, and known_error true). That grant was kept. It does not contain `itil`. `sn_problem_write` and `itil` were not granted. `admin` and `snc_basic_auth_api_access` were not granted.
+
+The same user can create an incident, look up a group by name, and look up a CI by name. A throwaway incident with correlation `E2E-PROBE-ROLE` was created and deleted. Probe residue after that delete was 0. A `sys_journal_field` query for an end-to-end incident returned zero rows, so the phase 2 helper reads the journal. No role was added for the journal, for `sys_user`, or for `cmdb`.
+
+Seed grants the incident user `sn_incident_write` and `problem_task_analyst`. The article read back as KB0010019. The problem read back as PRB0040059.

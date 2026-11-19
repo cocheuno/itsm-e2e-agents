@@ -124,8 +124,9 @@ def test_intake_rejects_release_and_security_flag() -> None:
 
 
 def test_problem_and_change_keys() -> None:
-    assert problem_idempotency_key("cluster-a").startswith("SYN-E2E-PRB-")
-    assert len(problem_idempotency_key("cluster-a")) == len("SYN-E2E-PRB-") + 16
+    assert problem_idempotency_key("cluster-a").startswith("E2E-PRB-")
+    assert len(problem_idempotency_key("cluster-a")) == len("E2E-PRB-") + 16
+    assert "SYN" not in problem_idempotency_key("cluster-a")
     handoff = IncidentProblemHandoff(
         cluster_key="cluster-a",
         incident_sys_ids=["a" * 32],

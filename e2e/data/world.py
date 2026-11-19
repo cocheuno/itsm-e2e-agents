@@ -4,9 +4,11 @@ from __future__ import annotations
 
 SEED = 42
 ANCHOR = "2026-10-27 00:00:00"
-MARKER = "SYN-E2E-"
+# Persistent rows. ServiceNow STARTSWITH is case-insensitive, so this must not
+# begin with SYN in any case. Scenario thread ids stay SYN-E2E- in contracts.
+MARKER = "E2E-"
 # One work-note line per Closed history incident: number, then correlation id.
-HISTORY_NOTE = "SYN-E2E-HISTORY"
+HISTORY_NOTE = "E2E-HISTORY"
 # Incident category by CI class. History and arrivals use this table.
 # A class that is not listed gets no category.
 CATEGORY_BY_CI_CLASS: dict[str, str] = {

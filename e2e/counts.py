@@ -6,13 +6,17 @@ from typing import Any
 
 from cm_agents.servicenow.client import ServiceNowClient
 
+from e2e.data.world import MARKER
 from e2e.state_api import endpoint_counts
 
-INCIDENTS = "correlation_idSTARTSWITHSYN-E2E-INC"
-PROBLEMS = "correlation_idSTARTSWITHSYN-E2E-PRB"
+INCIDENTS = f"correlation_idSTARTSWITH{MARKER}INC"
+PROBLEMS = f"correlation_idSTARTSWITH{MARKER}PRB"
+# Scenario changes use a SYN-E2E- thread id. Persistent rows do not.
 CHANGES = "correlation_idSTARTSWITHSYN-E2E-^ORshort_descriptionSTARTSWITHSYN-E2E-"
-ARTICLES = "short_descriptionSTARTSWITHSYN-E2E-"
-PROBES = "correlation_idSTARTSWITHSYN-E2E-PROBE^ORshort_descriptionSTARTSWITHSYN-E2E-PROBE"
+ARTICLES = f"short_descriptionSTARTSWITH{MARKER}"
+PROBES = (
+    f"correlation_idSTARTSWITH{MARKER}PROBE^ORshort_descriptionSTARTSWITH{MARKER}PROBE"
+)
 
 
 def snapshot(admin: ServiceNowClient) -> dict[str, int | None]:
@@ -32,7 +36,7 @@ def probe_residue(admin: ServiceNowClient) -> dict[str, int]:
         "incidents": admin.count("incident", PROBES),
         "problems": admin.count("problem", PROBES),
         "changes": admin.count("change_request", PROBES),
-        "articles": admin.count("kb_knowledge", "short_descriptionSTARTSWITHSYN-E2E-PROBE"),
+        "articles": admin.count("kb_knowledge", f"short_descriptionSTARTSWITH{MARKER}PROBE"),
     }
 
 

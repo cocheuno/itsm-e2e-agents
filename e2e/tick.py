@@ -1,8 +1,7 @@
 """One end-to-end tick: deliver due arrivals, triage them, then match or restore.
 
-Incident text is scored locally. It is not sent to an LLM. Writes go through
-the incident registry as the incident user. Article and problem rows are read
-by admin, because this PDI hides those tables from the incident user.
+Incident text is scored locally. It is not sent to an LLM. The incident user
+reads and writes. Admin is not used. The phase 2 helper reads the journal.
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from cm_agents.servicenow.client import ServiceNowError
 
 from e2e.data.arrivals import due_arrivals
 from e2e.data.fixtures import change_world
-from e2e.data.world import CATEGORY_BY_CI_CLASS
+from e2e.data.world import CATEGORY_BY_CI_CLASS, MARKER
 from e2e.errors import WorldError
 from e2e.guard import assert_run_quiet, latest_incident_stamp
 from e2e.instance import http_failure, open_client
@@ -76,14 +75,16 @@ def run_tick(settings: Settings) -> dict[str, Any]:
     _changes, ci_index = change_world()
     created = triaged = matched = restored = skipped = 0
     handled: list[dict[str, Any]] = []
-    with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
-        started = latest_incident_stamp(admin)
+    with open_client(
+        settings, settings.sn_incident_user, settings.sn_incident_password
+    ) as client:
+        started = latest_incident_stamp(client)
         allowed: set[str] = set()
-        caller = _caller(admin, settings)
-        articles, problems = _known_errors(admin)
+        caller = _caller(client)
+        articles, problems = _known_errors(client)
         for row in planned:
             outcome = _handle(
-                admin,
+                client,
                 registry,
                 audit,
                 row,
@@ -99,7 +100,7 @@ def run_tick(settings: Settings) -> dict[str, Any]:
             restored += int(outcome["restored"])
             skipped += int(outcome["skipped"])
             handled.append(outcome["row"])
-        outside = assert_run_quiet(admin, started, allowed)
+        outside = assert_run_quiet(client, started, allowed)
     fresh = audit.read()[before:]
     harmful = sum(1 for entry in fresh if entry.get("harmful"))
     print(
@@ -121,7 +122,7 @@ def run_tick(settings: Settings) -> dict[str, Any]:
 
 
 def _handle(
-    admin,
+    client,
     registry,
     audit,
     row: dict,
@@ -144,12 +145,12 @@ def _handle(
     if service is None:
         raise WorldError("arrival CI service has no group")
     group_name = str(service["group"])
-    group_id = _one(admin, "sys_user_group", f"name={group_name}")
-    ci_id = _one(admin, "cmdb_ci", f"name={ci_name}")
+    group_id = _one(client, "sys_user_group", f"name={group_name}")
+    ci_id = _one(client, "cmdb_ci", f"name={ci_name}")
     created = False
-    current = _find(admin, correlation)
+    current = _find(client, correlation)
     if current is None:
-        current = _create(admin, row, caller=caller, ci_id=ci_id)
+        current = _create(client, row, caller=caller, ci_id=ci_id)
         created = True
     sys_id = str(current["sys_id"])
     allowed.add(sys_id)
@@ -160,7 +161,7 @@ def _handle(
         decision = triage_decision(sys_id, category, "3", "3", group_name)
         _execute(registry, audit, decision)
         triaged += 1
-        current = _read(admin, sys_id)
+        current = _read(client, sys_id)
     incident = {
         "cmdb_ci": _ref(current.get("cmdb_ci")),
         "short_description": str(current.get("short_description") or ""),
@@ -182,7 +183,7 @@ def _handle(
             )
             _execute(registry, audit, decision)
             matched += 1
-            current = _read(admin, sys_id)
+            current = _read(client, sys_id)
     else:
         try:
             outcome = outcome_for(row)
@@ -194,9 +195,8 @@ def _handle(
             decision = restore_decision(sys_id, outcome["close_code"], outcome["close_notes"])
             _execute(registry, audit, decision)
             restored += 1
-            current = _read(admin, sys_id)
+            current = _read(client, sys_id)
     checked = _check_row(
-        admin,
         current,
         category=category,
         group_id=group_id,
@@ -253,7 +253,6 @@ def _restore_done(row: dict, close_code: str) -> bool:
 
 
 def _check_row(
-    admin,
     row: dict,
     *,
     category: str,
@@ -261,10 +260,9 @@ def _check_row(
     scenario: str,
     found: dict | None,
 ) -> dict[str, Any]:
-    sys_id = str(row["sys_id"])
-    notes = _journal(admin, sys_id)
     expected_priority = str(priority_on_this_pdi(3, 3))
-    comment_ok = True
+    # The journal is hidden from this user. The phase 2 helper reads it.
+    comment_ok = None
     notes_ok = True
     parent_ok = True
     state = _ref(row.get("state"))
@@ -273,14 +271,12 @@ def _check_row(
     close_code = _ref(row.get("close_code"))
     parent = _ref(row.get("parent"))
     if found is not None:
-        workaround = str(found["problem"].get("workaround") or "")
         article_number = str(found["article"].get("number") or "")
         problem_number = str(found["problem"].get("number") or "")
-        comment_ok = workaround in notes["comments"]
         close_notes = str(row.get("close_notes") or "")
         notes_ok = article_number in close_notes and problem_number in close_notes
         parent_ok = parent == str(found["problem"].get("sys_id") or "")
-    work_ok = "incident authority" in notes["work_notes"]
+    work_ok = None
     return {
         "number": str(row.get("number") or ""),
         "correlation_id": str(row.get("correlation_id") or ""),
@@ -301,11 +297,11 @@ def _check_row(
     }
 
 
-def _known_errors(admin) -> tuple[list[dict], dict[str, dict]]:
+def _known_errors(client) -> tuple[list[dict], dict[str, dict]]:
     try:
-        articles = admin.get_records(
+        articles = client.get_records(
             "kb_knowledge",
-            query="workflow_state=published^short_descriptionSTARTSWITHSYN-E2E-",
+            query=f"workflow_state=published^short_descriptionSTARTSWITH{MARKER}",
             fields=[
                 "sys_id",
                 "number",
@@ -328,7 +324,7 @@ def _known_errors(admin) -> tuple[list[dict], dict[str, dict]]:
         if not source or source in problems:
             continue
         try:
-            problem = admin.get_record(
+            problem = client.get_record(
                 "problem",
                 source,
                 fields=["sys_id", "number", "known_error", "workaround"],
@@ -339,9 +335,9 @@ def _known_errors(admin) -> tuple[list[dict], dict[str, dict]]:
     return articles, problems
 
 
-def _find(admin, correlation: str) -> dict | None:
+def _find(client, correlation: str) -> dict | None:
     try:
-        rows = admin.get_table(
+        rows = client.get_table(
             "incident",
             query=f"correlation_id={correlation}",
             fields=_FIELDS,
@@ -354,14 +350,14 @@ def _find(admin, correlation: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def _read(admin, sys_id: str) -> dict:
+def _read(client, sys_id: str) -> dict:
     try:
-        return admin.get_record("incident", sys_id, fields=_FIELDS)
+        return client.get_record("incident", sys_id, fields=_FIELDS)
     except ServiceNowError as exc:
         raise http_failure("arrival read", exc) from None
 
 
-def _create(admin, row: dict, *, caller: str, ci_id: str) -> dict:
+def _create(client, row: dict, *, caller: str, ci_id: str) -> dict:
     payload = {
         "short_description": str(row["short_description"]),
         "description": str(row["description"]),
@@ -374,20 +370,20 @@ def _create(admin, row: dict, *, caller: str, ci_id: str) -> dict:
         "opened_at": str(row["opened_at"]),
     }
     try:
-        created = admin.create_record("incident", payload)
+        created = client.create_record("incident", payload)
     except ServiceNowError as exc:
         if exc.status_code != 400:
             raise http_failure("arrival create", exc) from None
         payload.pop("opened_at")
         try:
-            created = admin.create_record("incident", payload)
+            created = client.create_record("incident", payload)
         except ServiceNowError as again:
             raise http_failure("arrival create", again) from None
         print("opened_at omitted")
     sys_id = str(created.get("sys_id") or "")
     if len(sys_id) != 32:
         raise WorldError("arrival was not created")
-    return _read(admin, sys_id)
+    return _read(client, sys_id)
 
 
 def _ref(value: object) -> str:
@@ -415,32 +411,28 @@ def _http_status(exc: BaseException) -> str:
     return text.split(marker, 1)[1].split(":", 1)[0].strip() or "none"
 
 
-def _caller(admin, settings: Settings) -> str:
-    skip = {
-        settings.sn_incident_user,
-        settings.sn_problem_user,
-        settings.sn_authority_user,
-    }
+def _caller(client) -> str:
+    """The caller already stored on a seeded incident. sys_user is not required."""
     try:
-        rows = admin.get_records(
-            "sys_user",
-            query="user_nameSTARTSWITHsyn.^active=true",
-            fields=["sys_id", "user_name"],
-            page_size=100,
-            max_records=200,
+        rows = client.get_table(
+            "incident",
+            query=f"correlation_idSTARTSWITH{MARKER}INC^caller_idISNOTEMPTY",
+            fields=["caller_id"],
+            limit=1,
         )
     except ServiceNowError as exc:
         raise http_failure("caller", exc) from None
-    chosen = [row for row in rows if str(row.get("user_name") or "") not in skip]
-    chosen.sort(key=lambda item: str(item.get("user_name") or ""))
-    if not chosen:
-        raise WorldError("no active syn. caller")
-    return str(chosen[0]["sys_id"])
+    if not rows:
+        raise WorldError("no seeded caller")
+    caller = _ref(rows[0].get("caller_id"))
+    if len(caller) != 32:
+        raise WorldError("no seeded caller")
+    return caller
 
 
-def _one(admin, table: str, query: str) -> str:
+def _one(client, table: str, query: str) -> str:
     try:
-        rows = admin.get_table(table, query=query, fields=["sys_id"], limit=1)
+        rows = client.get_table(table, query=query, fields=["sys_id"], limit=1)
     except ServiceNowError as exc:
         raise http_failure(table, exc) from None
     if not rows:
@@ -448,19 +440,3 @@ def _one(admin, table: str, query: str) -> str:
     return str(rows[0]["sys_id"])
 
 
-def _journal(admin, sys_id: str) -> dict[str, str]:
-    found = {"comments": "", "work_notes": ""}
-    try:
-        rows = admin.get_table(
-            "sys_journal_field",
-            query=f"name=incident^element_id={sys_id}^elementINcomments,work_notes",
-            fields=["element", "value"],
-            limit=40,
-        )
-    except ServiceNowError as exc:
-        raise http_failure("journal", exc) from None
-    for row in rows:
-        element = str(row.get("element") or "")
-        if element in found:
-            found[element] = found[element] + "\n" + str(row.get("value") or "")
-    return found

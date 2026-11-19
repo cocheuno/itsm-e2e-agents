@@ -29,11 +29,12 @@ def test_seeded_world_keeps_both_decoys() -> None:
 
 
 def test_history_note_names_the_number_and_the_correlation() -> None:
-    line = history_note_line("INC0010001", "SYN-E2E-INC-C01-001")
-    assert line == "SYN-E2E-HISTORY INC0010001 SYN-E2E-INC-C01-001"
+    line = history_note_line("INC0010001", "E2E-INC-C01-001")
+    assert line == "E2E-HISTORY INC0010001 E2E-INC-C01-001"
+    assert not line.upper().startswith("SYN")
     raised = False
     try:
-        history_note_line("", "SYN-E2E-INC-C01-001")
+        history_note_line("", "E2E-INC-C01-001")
     except ValueError:
         raised = True
     assert raised

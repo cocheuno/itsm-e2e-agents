@@ -23,7 +23,7 @@ from e2e.data.world import (
     category_for_class,
 )
 
-INJECT = "SYN-E2E-INJECT"
+INJECT = f"{MARKER}INJECT"
 
 
 def note_for(mechanism: str, summary: str) -> str:

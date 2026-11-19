@@ -13,6 +13,12 @@ SIBLINGS = (
     "itscm-451z-agent",
     "pm-agent-e2e",
 )
+# The pin records the imported main commit. These branches may move ahead of it.
+# ChangeManagementAgent stays on the pinned commit.
+_AHEAD_OK = {
+    "itscm-451z-agent": "e2e-incident",
+    "pm-agent-e2e": "e2e",
+}
 
 
 class PinsError(RuntimeError):
@@ -59,8 +65,33 @@ def sibling_heads(root: Path | None = None) -> dict[str, str]:
 def pin_mismatches(root: Path | None = None) -> list[str]:
     pins = load_pins(root)
     heads = sibling_heads(root)
+    parent = (root or repo_root()).parent
     lines = []
     for name in SIBLINGS:
-        if pins[name] != heads[name]:
-            lines.append(f"{name} pinned {pins[name]} checkout {heads[name]}")
+        if pins[name] == heads[name]:
+            continue
+        branch = _AHEAD_OK.get(name)
+        if branch and _branch_is(parent / name, branch) and _contains(parent / name, pins[name]):
+            continue
+        lines.append(f"{name} pinned {pins[name]} checkout {heads[name]}")
     return lines
+
+
+def _branch_is(path: Path, branch: str) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode == 0 and completed.stdout.strip() == branch
+
+
+def _contains(path: Path, commit: str) -> bool:
+    completed = subprocess.run(
+        ["git", "-C", str(path), "merge-base", "--is-ancestor", commit, "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return completed.returncode == 0

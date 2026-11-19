@@ -9,6 +9,7 @@ from cm_agents.data.import_time import UTC
 from cm_agents.servicenow.client import ServiceNowError
 
 from e2e.counts import format_counts, snapshot
+from e2e.data.world import MARKER
 from e2e.doctor import run_doctor
 from e2e.errors import WorldError
 from e2e.instance import http_failure, open_client
@@ -29,6 +30,7 @@ def run_phase2(settings: Settings) -> int:
         with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
             after = snapshot(admin)
             _article_field_empty(admin)
+            _prove_journal(admin, first, second)
         _expect(before, after, first, second)
     finally:
         pin(None)
@@ -100,11 +102,67 @@ def _expect_e02(row: dict) -> None:
     print(f"E02 {row['number']} restored category={row['category']} priority={row['priority']}")
 
 
+def _prove_journal(admin, first: dict, second: dict) -> None:
+    """The incident user does not see sys_journal_field. This helper does."""
+    try:
+        problems = admin.get_table(
+            "problem",
+            query=f"correlation_idSTARTSWITH{MARKER}PRB",
+            fields=["workaround"],
+            limit=2,
+        )
+    except ServiceNowError as exc:
+        raise http_failure("journal problem", exc) from None
+    if len(problems) != 1:
+        raise WorldError("phase 2 journal could not read the seeded problem")
+    workaround = str(problems[0].get("workaround") or "")
+    if not workaround:
+        raise WorldError("phase 2 journal could not read the workaround")
+    for result in (first, second):
+        for row in result["rows"]:
+            notes = _journal(admin, str(row["correlation_id"]))
+            row["work_note_ok"] = "incident authority" in notes["work_notes"]
+            if row["scenario"] == "E01":
+                row["comment_ok"] = workaround in notes["comments"]
+
+
+def _journal(admin, correlation_id: str) -> dict[str, str]:
+    found = {"comments": "", "work_notes": ""}
+    try:
+        incidents = admin.get_table(
+            "incident",
+            query=f"correlation_id={correlation_id}",
+            fields=["sys_id"],
+            limit=2,
+        )
+    except ServiceNowError as exc:
+        raise http_failure("journal incident", exc) from None
+    if len(incidents) != 1:
+        raise WorldError("phase 2 journal could not read an arrival")
+    try:
+        rows = admin.get_table(
+            "sys_journal_field",
+            query=(
+                "name=incident^element_id="
+                f"{incidents[0]['sys_id']}^elementINcomments,work_notes"
+            ),
+            fields=["element", "value"],
+            limit=40,
+        )
+    except ServiceNowError as exc:
+        raise http_failure("journal", exc) from None
+    for row in rows:
+        element = str(row.get("element") or "")
+        if element in found:
+            found[element] = found[element] + "\n" + str(row.get("value") or "")
+    return found
+
+
 def _article_field_empty(admin) -> None:
     try:
         rows = admin.get_table(
             "problem",
-            query="correlation_idSTARTSWITHSYN-E2E-PRB",
+            query=f"correlation_idSTARTSWITH{MARKER}PRB",
             fields=["primary_known_error_article"],
             limit=5,
         )

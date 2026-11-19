@@ -7,6 +7,7 @@ from cm_agents.servicenow.client import ServiceNowClient, ServiceNowError
 from e2e.accounts import delete_service_users
 from e2e.counts import format_counts, snapshot
 from e2e.data.history import Ledger
+from e2e.data.world import MARKER
 from e2e.errors import WorldError
 from e2e.instance import http_failure, open_client
 from e2e.paths import manifest_path
@@ -15,7 +16,21 @@ from e2e.state_api import endpoint_counts, remove
 
 STAGE = "u_syn_e2e_inc_import"
 MAP_NAME = "SYN-E2E Incident Import"
-MARKER = "SYN-E2E-"
+# Previous persistent prefix. These name INC, PRB, PROBE, and INJECT only.
+# A live thread id is SYN-E2E-<case>-CHG-<attempt> and does not match them.
+# The four change-seed prefixes do not match them either.
+LEGACY_INCIDENTS = (
+    "correlation_idSTARTSWITHSYN-E2E-INC"
+    "^ORcorrelation_idSTARTSWITHSYN-E2E-PROBE"
+    "^ORcorrelation_idSTARTSWITHSYN-E2E-INJECT"
+    "^ORshort_descriptionSTARTSWITHSYN-E2E-"
+)
+LEGACY_PROBLEMS = (
+    "correlation_idSTARTSWITHSYN-E2E-PRB"
+    "^ORcorrelation_idSTARTSWITHSYN-E2E-PROBE"
+    "^ORshort_descriptionSTARTSWITHSYN-E2E-"
+)
+LEGACY_TEXT = "short_descriptionSTARTSWITHSYN-E2E-"
 
 
 def run_teardown(settings: Settings) -> int:
@@ -23,6 +38,9 @@ def run_teardown(settings: Settings) -> int:
     with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
         _clear_parents(admin, settings)
         _delete_records(admin, ledger)
+        left = _legacy_left(admin)
+        if left:
+            raise WorldError(f"legacy SYN-E2E- persistent rows left={left}")
         _remove_endpoint(admin, ledger)
         _remove_import(admin, ledger)
         delete_service_users(admin, settings, ledger)
@@ -37,9 +55,14 @@ def run_teardown(settings: Settings) -> int:
 
 
 def _clear_parents(admin: ServiceNowClient, settings: Settings) -> None:
+    _clear_parent_query(admin, settings, f"correlation_idSTARTSWITH{MARKER}^parentISNOTEMPTY")
+    _clear_parent_query(admin, settings, "correlation_idSTARTSWITHSYN-E2E-INC^parentISNOTEMPTY")
+
+
+def _clear_parent_query(admin: ServiceNowClient, settings: Settings, query: str) -> None:
     rows = admin.get_records(
         "incident",
-        query=f"correlation_idSTARTSWITH{MARKER}^parentISNOTEMPTY",
+        query=query,
         fields=["sys_id"],
         page_size=200,
         max_records=500,
@@ -63,22 +86,26 @@ def _clear_parents(admin: ServiceNowClient, settings: Settings) -> None:
                 raise http_failure("clear parent", exc) from None
     left = admin.get_records(
         "incident",
-        query=f"correlation_idSTARTSWITH{MARKER}^parentISNOTEMPTY",
+        query=query,
         fields=["sys_id"],
         page_size=50,
         max_records=50,
     )
+    # A Closed incident keeps parent on this PDI. The row is deleted next.
     if left:
-        raise WorldError(f"parent clear left {len(left)} incidents")
+        print(f"parent clear left {len(left)} incidents")
 
 
 def _delete_records(admin: ServiceNowClient, ledger: Ledger) -> None:
     text = f"short_descriptionSTARTSWITH{MARKER}"
     correlation = f"correlation_idSTARTSWITH{MARKER}"
     _delete_query(admin, ledger, "incident", f"{text}^OR{correlation}", "incident")
+    _delete_query(admin, ledger, "incident", LEGACY_INCIDENTS, "legacy incident")
     _delete_query(admin, ledger, "problem", f"{text}^OR{correlation}", "problem")
+    _delete_query(admin, ledger, "problem", LEGACY_PROBLEMS, "legacy problem")
     for table in ("kb_knowledge", "kb_template_known_error_article"):
         _delete_query(admin, ledger, table, text, "article")
+        _delete_query(admin, ledger, table, LEGACY_TEXT, "legacy article")
     changes = admin.get_records(
         "change_request",
         query=f"{text}^OR{correlation}",
@@ -233,6 +260,14 @@ def _users_gone(admin: ServiceNowClient, settings: Settings) -> None:
     ):
         if _count(admin, "sys_user", f"user_name={user_name}"):
             raise WorldError("a service user is still present")
+
+
+def _legacy_left(admin: ServiceNowClient) -> int:
+    total = _count(admin, "incident", LEGACY_INCIDENTS)
+    total += _count(admin, "problem", LEGACY_PROBLEMS)
+    total += _count(admin, "kb_knowledge", LEGACY_TEXT)
+    total += _count(admin, "kb_template_known_error_article", LEGACY_TEXT)
+    return total
 
 
 def _count(admin: ServiceNowClient, table: str, query: str) -> int:

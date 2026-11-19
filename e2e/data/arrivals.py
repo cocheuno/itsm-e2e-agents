@@ -7,6 +7,7 @@ from datetime import datetime
 from cm_agents.data.import_time import UTC
 
 from e2e.data.fixtures import build_incidents
+from e2e.data.world import MARKER
 
 E01_SHORT = (
     "Shoppers see a timeout when the application cannot write "
@@ -21,7 +22,7 @@ E01_OPENED = "2026-10-24 15:30:00"
 def e01_arrival() -> dict[str, str]:
     """One new incident for the seeded CDN known error. It is not in the seed."""
     return {
-        "correlation_id": "SYN-E2E-INC-E01-ARR-001",
+        "correlation_id": f"{MARKER}INC-E01-ARR-001",
         "cmdb_ci": "syn-store-cdn",
         "short_description": E01_SHORT,
         "description": E01_DESCRIPTION,

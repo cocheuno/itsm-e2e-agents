@@ -1,4 +1,4 @@
-"""Command line for doctor, discover, seed, teardown, and the Phase 1 gate."""
+"""Command line for doctor, discover, seed, teardown, tick, and scenarios."""
 
 from __future__ import annotations
 
@@ -40,9 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("discover", help="Run the Phase 0 probes and write docs/DISCOVERY.md")
     sub.add_parser("seed", help="Load the e2e world, the endpoint, and the service users")
     sub.add_parser("teardown", help="Remove the e2e world and leave the change seed")
-    sub.add_parser("gate", help="Run the Phase 1 gate and leave the world seeded")
     sub.add_parser("tick", help="Handle arrivals that are due on the simulated clock")
-    sub.add_parser("phase2", help="Run the Phase 2 gate and leave the arrivals resolved")
+    scenario = sub.add_parser("scenario", help="Run an end-to-end scenario")
+    scenario_sub = scenario.add_subparsers(dest="scenario_command", required=True)
+    scenario_run = scenario_sub.add_parser("run", help="Run E01 through E12, or all")
+    scenario_run.add_argument("name", help="E01 through E12, or all")
     args = parser.parse_args(argv)
     try:
         settings = load_settings()
@@ -72,13 +74,11 @@ def main(argv: list[str] | None = None) -> int:
 
             run_tick(settings)
             return 0
-        if args.command == "phase2":
-            from e2e.phase2 import run_phase2
+        from e2e.scenarios import run_scenarios
 
-            return run_phase2(settings)
-        from e2e.gate import run_gate
-
-        return run_gate(settings)
+        if args.scenario_command != "run":
+            raise WorldError("scenario command must be run")
+        return run_scenarios(settings, args.name)
     except WorldError as exc:
         print(str(exc), file=sys.stderr)
         return 1

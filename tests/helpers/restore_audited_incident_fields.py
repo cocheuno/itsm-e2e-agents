@@ -100,7 +100,9 @@ def canon(field: str, value: object) -> str:
 def group_of(correlation: str) -> str:
     if correlation.startswith("SYN-INC-"):
         return "change-seed"
-    if correlation.startswith("SYN-E2E-"):
+    # Persistent rows are E2E-. SYN-E2E- is the previous persistent prefix and
+    # a scenario thread id. Neither is a change-seed prefix.
+    if correlation.startswith("E2E-") or correlation.startswith("SYN-E2E-"):
         return "e2e"
     if correlation.startswith("PMSYNTH") or correlation == "":
         return "neither"
@@ -625,6 +627,10 @@ def _query_counts(client: ServiceNowClient) -> None:
         hot_e2e = client.count(
             "incident",
             "active=true^priorityIN1,2^correlation_idSTARTSWITHSYN-E2E-",
+        )
+        hot_e2e += client.count(
+            "incident",
+            "active=true^priorityIN1,2^correlation_idSTARTSWITHE2E-",
         )
         hot_pm = client.count(
             "incident",
