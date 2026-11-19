@@ -19,4 +19,11 @@ def test_no_module_writes_the_forbidden_article_field() -> None:
         text = path.read_text(encoding="utf-8")
         if _WRITE.search(text) or _ASSIGN.search(text):
             offenders.append(str(path.relative_to(root)))
+    fork = root.parent / "pm-agent-e2e"
+    for name in ("detection_agent.py", "rca_agent.py"):
+        path = fork / name
+        assert path.is_file()
+        text = path.read_text(encoding="utf-8")
+        if _WRITE.search(text) or _ASSIGN.search(text):
+            offenders.append(name)
     assert offenders == []
