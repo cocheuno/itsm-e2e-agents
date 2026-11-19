@@ -665,6 +665,56 @@ def _payload(
     return {f"u_{key}": value for key, value in values.items() if value != ""}
 
 
+def post_import_row(admin: ServiceNowClient, payload: dict[str, str]) -> str:
+    """POST one incident through the seeded import set.
+
+    The transform map has business rules, scripts, and mandatory checks off.
+    That is the path that stores the simulated opened_at.
+    """
+    try:
+        response = admin.request("POST", f"/api/now/import/{STAGE}", json=payload)
+    except ServiceNowError as exc:
+        raise http_failure("import row", exc) from None
+    results = response.get("result")
+    if isinstance(results, dict):
+        results = [results]
+    if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+        raise WorldError("import row returned an unexpected result")
+    status = str(results[0].get("status") or "")
+    if status not in {"inserted", "updated"}:
+        raise WorldError(f"import row status {status or 'failed'}")
+    return status
+
+
+def import_opened_incident(
+    admin: ServiceNowClient,
+    settings: Settings,
+    row: dict[str, Any],
+    *,
+    resolved_at: str,
+    parent_id: str = "",
+) -> str:
+    """Import one incident. opened_at is the row's simulated time.
+
+    resolved_at is passed through the same wall-clock conversion. The caller
+    chooses it. History uses an hour after open. A scenario arrival uses the
+    platform clock so the autoclose job, which reads that clock, does not
+    close the row before the case links it. parent_id keeps the problem link
+    when a later import repairs the row.
+    """
+    caller = _caller(admin, settings)
+    group_id = _one(admin, "sys_user_group", f"name={DESK}")
+    body = dict(row)
+    if parent_id:
+        body["parent"] = "E01"
+    cis = _cis(admin, {str(body["cmdb_ci"])})
+    payload = _payload(body, cis=cis, group_id=group_id, caller=caller, problem_id=parent_id)
+    payload["u_resolved_at"] = to_import_wall(resolved_at)
+    if not parent_id:
+        payload.pop("u_parent", None)
+    return post_import_row(admin, payload)
+
+
 def _post_one(
     admin: ServiceNowClient,
     manifest: dict[str, Any],

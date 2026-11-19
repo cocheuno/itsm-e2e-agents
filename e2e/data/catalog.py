@@ -179,3 +179,28 @@ def for_mechanism_class(mechanism: str, ci_class: str) -> list[dict[str, object]
         for row in entries()
         if row["mechanism"] == mechanism and row["ci_class"] == ci_class
     ]
+
+
+def for_detected(mechanism: str, ci_class: str, ci: str) -> dict[str, object] | None:
+    """The one catalog row for this mechanism, class, and CI name."""
+    found = [
+        row
+        for row in for_mechanism_class(mechanism, ci_class)
+        if row["ci"] == ci
+    ]
+    if len(found) != 1:
+        return None
+    return found[0]
+
+
+def known_error_text(mechanism: str) -> tuple[str, str]:
+    """Cause and workaround copied into the known-error article.
+
+    An empty pair means this mechanism has no article text yet.
+    """
+    if mechanism == "log_rotation_stopped":
+        return (
+            "Log rotation stopped. The log directory filled.",
+            "Retry the page. Clear the filled log files at the next maintenance window.",
+        )
+    return "", ""

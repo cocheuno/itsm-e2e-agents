@@ -1,7 +1,7 @@
-"""One end-to-end tick: deliver due arrivals, triage them, then match or restore.
+"""One end-to-end tick: handle open incidents, run detection, advance open cases.
 
-Incident text is scored locally. It is not sent to an LLM. The incident user
-reads and writes. Admin is not used. The phase 2 helper reads the journal.
+Delivering an arrival is the world simulator. This module does not insert
+incidents and does not use admin. Incident text is scored locally.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from cm_agents.clock import now as clock_now
 from cm_agents.data.generate import SERVICE_BY_NAME
 from cm_agents.servicenow.client import ServiceNowError
 
-from e2e.data.arrivals import due_arrivals
+from e2e.adapters.incident import ci_names, stamp
 from e2e.data.fixtures import change_world
 from e2e.data.world import CATEGORY_BY_CI_CLASS, MARKER
 from e2e.errors import WorldError
@@ -58,8 +58,51 @@ _FIELDS = [
 
 
 def run_tick(settings: Settings) -> dict[str, Any]:
-    """Handle arrivals that are due on the simulated clock. A second call writes nothing."""
-    planned = due_arrivals(clock_now())
+    """Handle open incidents, detect, and advance cases that have a decision hook."""
+    handled = _triage_open(settings)
+    from e2e.case_graph import on_tick
+
+    case = on_tick(settings)
+    signature = (
+        handled["triaged"],
+        handled["matched"],
+        handled["restored"],
+        case["signature"],
+    )
+    print(
+        f"tick triaged={handled['triaged']} known_error={handled['matched']} "
+        f"restored={handled['restored']} opened={case['created']} "
+        f"advanced={case['advanced']} outside incident updates={handled['outside']}"
+    )
+    return {**handled, **case, "signature": signature}
+
+
+def run_until_idle(settings: Settings, *, limit: int = 8) -> dict[str, Any]:
+    """Repeat a tick until one changes nothing."""
+    previous = None
+    last: dict[str, Any] = {}
+    for _ in range(limit):
+        last = run_tick(settings)
+        signature = last["signature"]
+        if signature == previous:
+            print("idle")
+            return last
+        previous = signature
+    raise WorldError("tick did not go idle")
+
+
+def _triage_open(settings: Settings) -> dict[str, int]:
+    """Triage incidents that are already New. This does not insert a row."""
+    counts = {
+        "created": 0,
+        "triaged": 0,
+        "matched": 0,
+        "restored": 0,
+        "skipped": 0,
+        "outside": 0,
+        "harmful": 0,
+    }
+    clock = clock_now().strftime("%Y-%m-%d %H:%M:%S")
     folder = repo_root() / "var" / "phase2"
     folder.mkdir(parents=True, exist_ok=True)
     registry = Registry(ApprovalQueue(folder / "approvals.jsonl"))
@@ -73,52 +116,60 @@ def run_tick(settings: Settings) -> dict[str, Any]:
     )
     bind_writes(registry, incident_client, live=True)
     _changes, ci_index = change_world()
-    created = triaged = matched = restored = skipped = 0
-    handled: list[dict[str, Any]] = []
     with open_client(
         settings, settings.sn_incident_user, settings.sn_incident_password
     ) as client:
         started = latest_incident_stamp(client)
         allowed: set[str] = set()
-        caller = _caller(client)
+        try:
+            rows = client.get_records(
+                "incident",
+                query=f"correlation_idSTARTSWITH{MARKER}INC^state=1",
+                fields=_FIELDS,
+                page_size=50,
+                max_records=50,
+            )
+        except ServiceNowError as exc:
+            raise http_failure("open incidents", exc) from None
+        names = ci_names(client, {str(row.get("cmdb_ci") or "") for row in rows})
         articles, problems = _known_errors(client)
-        for row in planned:
+        for row in rows:
+            opened = stamp(row.get("opened_at"))
+            if not opened or opened > clock:
+                continue
+            ci_name = names.get(str(row.get("cmdb_ci") or ""), "")
+            if not ci_name:
+                raise WorldError("open incident CI was not readable")
+            planned = {
+                "correlation_id": str(row.get("correlation_id") or ""),
+                "cmdb_ci": ci_name,
+                "short_description": str(row.get("short_description") or ""),
+                "description": str(row.get("description") or ""),
+                "close_notes": str(row.get("close_notes") or row.get("description") or ""),
+                "close_code": str(row.get("close_code") or ""),
+                "scenario": "",
+            }
+            if not planned["close_notes"]:
+                raise WorldError("open incident has no notes to restore")
             outcome = _handle(
                 client,
                 registry,
                 audit,
-                row,
-                caller=caller,
+                planned,
+                caller="",
                 ci_index=ci_index,
                 articles=articles,
                 problems=problems,
                 allowed=allowed,
             )
-            created += int(outcome["created"])
-            triaged += int(outcome["triaged"])
-            matched += int(outcome["matched"])
-            restored += int(outcome["restored"])
-            skipped += int(outcome["skipped"])
-            handled.append(outcome["row"])
-        outside = assert_run_quiet(client, started, allowed)
+            counts["triaged"] += int(outcome["triaged"])
+            counts["matched"] += int(outcome["matched"])
+            counts["restored"] += int(outcome["restored"])
+            counts["skipped"] += int(outcome["skipped"])
+        counts["outside"] = assert_run_quiet(client, started, allowed)
     fresh = audit.read()[before:]
-    harmful = sum(1 for entry in fresh if entry.get("harmful"))
-    print(
-        f"tick arrivals={len(planned)} created={created} triaged={triaged} "
-        f"known_error={matched} restored={restored} skipped={skipped} "
-        f"outside incident updates={outside} harmful={harmful}"
-    )
-    return {
-        "arrivals": len(planned),
-        "created": created,
-        "triaged": triaged,
-        "known_error": matched,
-        "restored": restored,
-        "skipped": skipped,
-        "outside": outside,
-        "harmful": harmful,
-        "rows": handled,
-    }
+    counts["harmful"] = sum(1 for entry in fresh if entry.get("harmful"))
+    return counts
 
 
 def _handle(

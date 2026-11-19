@@ -45,6 +45,36 @@ def thread_query(thread_id: str) -> str:
     return f"correlation_id={require_thread_id(thread_id)}"
 
 
+def delete_unkept(admin: ServiceNowClient, table: str, query: str, keep: set[str]) -> int:
+    """Delete rows in `query` whose sys_id is not in the seeded set."""
+    try:
+        found = admin.get_records(
+            table,
+            query=query,
+            fields=["sys_id"],
+            page_size=200,
+            max_records=500,
+        )
+    except ServiceNowError as exc:
+        if exc.status_code == 404 or (table == "conflict" and exc.status_code == 400):
+            return 0
+        raise http_failure(f"query {table}", exc) from None
+    removed = 0
+    for row in found:
+        sys_id = str(row.get("sys_id") or "")
+        if len(sys_id) != 32 or sys_id in keep:
+            continue
+        try:
+            admin.delete_record(table, sys_id)
+        except ServiceNowError as exc:
+            if exc.status_code == 404:
+                continue
+            code = exc.status_code if exc.status_code is not None else "none"
+            raise WorldError(f"delete {table} failed HTTP {code}") from None
+        removed += 1
+    return removed
+
+
 def delete_scenario_threads(admin: ServiceNowClient, thread_ids: list[str]) -> None:
     """Delete the change and the deployment incident for each thread id."""
     for thread_id in thread_ids:

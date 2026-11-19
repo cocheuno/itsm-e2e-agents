@@ -1,7 +1,7 @@
 """Read-only detection over PMSYNTH incidents. This is a report, not a gate.
 
 The same detect() rule runs. Nothing is written. Existing parent links are ignored
-because detect() does not read parent. A failure here must not fail E02.
+because detect() does not read parent. A failure here must not fail the scenario.
 """
 
 from __future__ import annotations
@@ -11,10 +11,13 @@ from typing import Any
 
 from cm_agents.servicenow.client import ServiceNowError
 
+from e2e.adapters.incident import ci_names as _ci_names
+from e2e.adapters.incident import detect_row as _detect_row
+from e2e.adapters.incident import load_detect as _fork
+from e2e.adapters.incident import stamp as _stamp
 from e2e.errors import WorldError
 from e2e.instance import http_failure, open_client
 from e2e.paths import repo_root
-from e2e.phase3_e02 import _ci_names, _detect_row, _fork, _stamp
 from e2e.settings import Settings
 
 _ANSWER = "20261105-201823_answer_key.json"

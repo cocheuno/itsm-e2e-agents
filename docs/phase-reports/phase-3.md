@@ -1,75 +1,69 @@
 # Phase 3
 
-The Phase 3 gate passed (`pytest tests/live/test_phase3.py -m live`, exit 0, 120.86s). One scenario ran: E02. The change thread was deleted before the test returned. This commit is local on `grok-build`. It was not pushed. The change repository was not modified. The incident repository commit is local on `e2e-incident`. `main` there was not moved, and nothing was pushed.
+The Phase 3 gate passed (`pytest tests/live/test_phase3.py -m live`, exit 0, 258.84s). E02 ran twice in that process. Each run started from the seeded counts and returned to them. The harness deleted the change before each run returned. This commit is local on `grok-build`. It was not pushed. The change repository was not modified and remains at `811e8fd`. The incident repository and `pm-agent-e2e` were not modified.
 
 ## What the gate showed
 
-The checkout problem and its known-error article already existed and were reused. Detection before the fifth arrival opened nothing. After the fifth, confidence was High and the peak was 5. The root-cause helper proposed `log_rotation_stopped`. Signal (a) fired. Signals (b) and (c) did not. Signal (d) was false.
+Both runs did the same work. Four arrivals, one tick, and no new problem. The fifth arrival, one tick, and exactly one new problem for that CI. Confidence was High and the peak was 5. Total problems went from 1 to 2, then back to 1 when the run removed its problem.
 
-| Check | Result |
+The problem key is the hash of the detected CI and category, `E2E-PRB-42866cd126560fab`. The case id is `E2E-42866cd1`. Signals were computed from the ServiceNow cluster in the lookback, history and arrivals together. They matched the offline backtest: a, b, and c were `log_rotation_stopped`, d was false, and the decision was confirmed.
+
+| Check | Each run |
 |---|---|
-| Before the fifth | 0 checkout candidates |
+| Counts before and after | incidents=101 problems=1 articles=1 changes=0 endpoint 1/2 |
+| Before the fifth | 0 problems on the checkout CI, 1 problem in total |
+| After the fifth | 1 problem on the checkout CI, 2 problems in total |
 | Confidence / peak | High / 5 |
+| Signals | a, b, c `log_rotation_stopped`; d false; fired a, b, c |
 | RCA | 5 Whys, clue share 1.0, last business day 0 |
-| Signals | a=`log_rotation_stopped`, b empty, c empty, d false |
-| Arrivals linked | 5, state 6, parent set |
+| Proposed mechanism | `log_rotation_stopped` |
+| Root-cause tokens | prompt 1622, completion 53 |
+| Arrivals linked | 5 |
 | History notes | 3 |
-| Article | KB0010020, published, source the checkout problem, CI `syn-store-checkout` |
-| Problem | PRB0040060, correlation `E2E-PRB-256ec3a2c108b8f7`, ended Closed (107) |
-| Plans | implementation, backout, and test plans matched the catalog |
-| `problem.rfc` | set and read back while the change existed |
-| Recurrence in 14 days | 0 |
+| Recurrence in 14 days | 0, from stored `opened_at` |
 | Guard | 0 outside updates |
-| Persistent counts after | incidents=107 problems=2 articles=2 changes=0 endpoint 1/2 |
+| Plans | matched the catalog while the change existed |
+| `problem.rfc` | set and read back while the change existed |
+| Problem close | 103, then 104, 106, 107, each HTTP 200 |
 
-The same persistent counts were read before the run. E01 is still PRB0040059 and KB0010019. The five restored arrivals were not triaged again. Priority was not written.
+The first run's problem was PRB0040062 and its article was KB0010022. The second run's problem was PRB0040063 and its article was KB0010023. Both articles were published. The scenario then deleted the arrivals, the article, the problem, and the change. Those numbers are not left on the instance.
 
-The requested window was 2026-11-11 01:00–03:00. The change repository's scheduler stored 2026-11-08 03:00:00 through 2026-11-08 05:00:00. Its audit line says maintenance inside, conflicts none, moved because of a blackout. The requested constants were not changed. Go used the stored start plus 30 minutes.
+The import set stored the fixture `opened_at` on every arrival. The parent update did not replace it. Recurrence, counted from that stored column, was 0.
 
-The authority user approved only the requested approval row whose approver is that user. Assess stayed at Authorize (`-3`). Authorize stayed at Scheduled (`-2`). Risk was 4 and the type was normal, so the hold did not fire. The deployment was verified. The independent read-back after the graph was state 3 and close code `successful`.
+The requested window was 2026-11-11 01:00–03:00. Both runs stored 2026-11-08 03:00:00 through 2026-11-08 05:00:00. The requested constants were not changed. Go used the stored start plus 30 minutes.
 
-The problem then moved 103 → 104 → 106 → 107, each HTTP 200. Close notes start with `Recurrence in 14 days: 0.` The harness then deleted the change. `changes=0` after the test. No change number is kept here.
+The authority user approved only the requested approval row whose approver is that user. Assess stayed at Authorize (`-3`). Authorize stayed at Scheduled (`-2`). Risk was 4 and the type was normal, so the hold did not fire. The read-back was state 3 and close code `successful`. An empty resume dict does not advance this graph. The resume value is `{"continue": "true"}`.
+
+Close notes start with `Recurrence in 14 days: 0.` The harness then deleted the change. `changes=0` after each run.
 
 ## How to follow the case
 
-The case id is `E2E-256ec3a2`. That is `E2E-` plus the first 8 hex digits of the digest in the problem correlation `E2E-PRB-256ec3a2c108b8f7`.
-
-The change thread id is `SYN-E2E-E2E-256ec3a2-CHG-1`. While the change existed, ServiceNow showed it in two places:
+The case id is `E2E-` plus the first 8 hex digits of the problem correlation. While the change existed, ServiceNow showed it in two places:
 
 - `problem.rfc` pointed at the change.
-- The problem work note was `Change {number}. Thread SYN-E2E-E2E-256ec3a2-CHG-1.`
+- The problem work note was `Change {number}. Thread {thread id}.`
 
-Deleting the change clears `rfc`. The work note remains on the problem. The correlation id on the problem is the persistent key. The thread id is only the change's `correlation_id`, and it is gone once the harness deletes that change.
+Deleting the change clears `rfc`. The scenario also deletes the problem, so that work note does not remain after the run. The seeded problem and the seeded article are the ones left behind.
 
 ## Tokens
 
-This repository's root-cause call, temperature 0, against the xAI chat endpoint: prompt 1523, completion 38, latency 8778 ms.
+Each root-cause call used temperature 0. Both calls were prompt 1622 and completion 53. The second call's latency was 5945 ms.
 
-The passing change-graph run wrote three audit rows: plan quality 2002 tokens / 4697 ms, CAB brief 3853 / 20656 ms, close notes 1781 / 5573 ms. That is 3 calls, 7636 tokens, 30926 ms. The gate's printed graph total (6 calls, 15095 tokens, 84586 ms) is every row tagged `e2e-phase3` in the change repository's audit, including one earlier attempt that reached the same three calls.
+The change graph tag for this gate is `e2e-case`. The first run wrote three audit rows: plan quality 2046 tokens / 4433 ms, CAB brief 3803 / 20761 ms, close notes 1675 / 3446 ms. That is 3 calls, 7524 tokens, 28640 ms. The second run wrote three more: plan quality 1987 / 4391 ms, CAB brief 4340 / 28935 ms, close notes 1668 / 2836 ms. The printed total after the second run, 6 calls, 15519 tokens, 64802 ms, is both runs.
 
 ## Fork
 
-`pm-agent-e2e` was not edited. E02 calls `detection_agent.detect` and the pure functions `clue_share`, `choose_method`, and `_last_business_day`, plus this repository's signal table. It does not call `gather()`, the fork's seeder, the fork's state endpoint, or `knowledge_agent`. The fork's offline unittest was already 17 passed. It was not run again.
+`pm-agent-e2e` was not edited. The case calls `detection_agent.detect` and the pure functions `clue_share`, `choose_method`, and `_last_business_day`, plus this repository's signal table. It does not call `gather()`. The fork's offline unittest was `Ran 17 tests in 0.086s` and `OK`.
+
+## Change repository
+
+The offline suite, from that repository's own environment, was `174 passed, 14 deselected` in 140.57s. HEAD stayed `811e8fd`. No file there was edited.
+
+With the end-to-end layer loaded and no end-to-end scenario running, `cm-agents scenario run S01` from the change repository passed: 1 passed in 38.95s, state 3, close code `successful`. End-to-end counts were the same before and after: incidents=101 problems=1 articles=1 changes=0, endpoint 1 definition and 2 operations. Its own cleanup left 0 scenario changes and 0 scenario incidents.
 
 ## PMSYNTH
 
-The comparison ran after E02 and did not fail the gate. The incident user read 200 `PMSYNTH` incidents. CI precision 0.571, recall 1.000, 7 candidates, 4 expected. Incident precision 0.687, recall 1.000. Candidates: mail-01 High peak 9 count 26, payroll-app-01 High peak 7 count 14, db-prod-01 High peak 7 count 16, vpn-gw-01 High peak 8 count 15, core-sw-01 High peak 6 count 14, crmdb High peak 5 count 9, sp-web-01 High peak 5 count 5.
-
-## PDI facts this phase recorded
-
-The five checkout arrivals keep the platform insert time `2026-11-19 15:30`. A later update read back that same time. Recurrence does not use that stored value. It uses the fixture `opened_at` joined by correlation id, so the October history is not counted after the simulated close. This run's recurrence was 0. Where that overlay disagrees with the stored column, the overlay is the clock.
-
-An empty resume dict does not advance this LangGraph checkpoint. The resume value is the change CLI's `{"continue": "true"}`.
-
-`task_ci` is not deleted directly. The change model returns HTTP 403 for that delete. Deleting the change removes those rows.
-
-A Closed problem (107) rejects `work_notes` and `rfc` for the problem user (HTTP 403). The problem user also reads journal rows back empty, so a note is written only while the problem is open. This run wrote the notes at state 103.
-
-The problem state model allowed a move from 107 back to 103 through the existing `syne2e` move operation. That was a one-time recovery so a later attempt could set `rfc`. The passing run did not move backward.
-
-A finished checkpoint for the same thread id made an earlier attempt print state 3 while the new change was still Scheduled, with an empty close code. The harness now deletes that thread's checkpoint and its deploy-simulator entry before `start_change`, and leaves every other thread. This run cleared that memory, and the read-back was state 3, close code `successful`. The second close walk was not used.
-
-The change repository's clean-up deletes a `SYN-` correlation. Do not run a `cm-agents` scenario while an end-to-end scenario is in progress.
+The comparison ran after the second E02 and did not fail the gate. The incident user read 200 `PMSYNTH` incidents. CI precision 0.571, recall 1.000, 7 candidates, 4 expected. Incident precision 0.687, recall 1.000. Candidates: mail-01 High peak 9 count 26, payroll-app-01 High peak 7 count 14, db-prod-01 High peak 7 count 16, vpn-gw-01 High peak 8 count 15, core-sw-01 High peak 6 count 14, crmdb High peak 5 count 9, sp-web-01 High peak 5 count 5. The three false candidates are core-sw-01, crmdb, and sp-web-01.
 
 ## Tests
 
@@ -80,19 +74,7 @@ ruff check e2e tests
 All checks passed!
 
 pytest -q
-64 passed in 37.31s
+69 passed in 26.60s
 ```
 
-`tests/live` is not in that default run. The live gate above is the one that calls ServiceNow.
-
-The change repository was not modified. Its last offline run, from before this phase, was 174 passed and 14 deselected. It was not run again. HEAD remains `811e8fd6e4969ebabedd48aa37e593fe8b24b281`.
-
-The incident repository, on `e2e-incident`, with `%LOCALAPPDATA%\venvs\itscm-451z-agent` and `PYTHONPATH=src`:
-
-```
-ruff check src tests
-All checks passed!
-
-pytest -q
-110 passed, 2 skipped
-```
+Run-time modules do not import ground truth or the planted-cluster table. The Phase 3 accept decision lives in `tests/helpers/decisions.py` and is passed into the case graph. `e2e/simulator/deliver.py` is the world simulator and is the delivery module allowed to use the admin import path.

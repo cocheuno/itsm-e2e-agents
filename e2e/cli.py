@@ -1,4 +1,4 @@
-"""Command line for doctor, discover, seed, teardown, tick, and scenarios."""
+"""Command line for doctor, discover, seed, teardown, tick, run, and scenarios."""
 
 from __future__ import annotations
 
@@ -40,7 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("discover", help="Run the Phase 0 probes and write docs/DISCOVERY.md")
     sub.add_parser("seed", help="Load the e2e world, the endpoint, and the service users")
     sub.add_parser("teardown", help="Remove the e2e world and leave the change seed")
-    sub.add_parser("tick", help="Handle arrivals that are due on the simulated clock")
+    sub.add_parser("tick", help="Handle incidents, run detection, and advance open cases")
+    run = sub.add_parser("run", help="Repeat ticks until one changes nothing")
+    run.add_argument("--until-idle", action="store_true", required=True)
     scenario = sub.add_parser("scenario", help="Run an end-to-end scenario")
     scenario_sub = scenario.add_subparsers(dest="scenario_command", required=True)
     scenario_run = scenario_sub.add_parser("run", help="Run E01 through E12, or all")
@@ -73,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
             from e2e.tick import run_tick
 
             run_tick(settings)
+            return 0
+        if args.command == "run":
+            from e2e.tick import run_until_idle
+
+            run_until_idle(settings)
             return 0
         from e2e.scenarios import run_scenarios
 

@@ -9,6 +9,12 @@ from e2e.errors import WorldError
 from e2e.scenarios import execute_scenario, scenario_names
 
 
+def test_run_requires_until_idle() -> None:
+    with pytest.raises(SystemExit) as caught:
+        main(["run"])
+    assert caught.value.code == 2
+
+
 def test_gate_and_phase2_are_not_commands() -> None:
     for command in ("gate", "phase2"):
         with pytest.raises(SystemExit) as caught:

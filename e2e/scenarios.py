@@ -64,17 +64,14 @@ def run_scenarios(settings: Settings, name: str) -> int:
 
 
 def _run_one(settings: Settings, name: str, threads: list[str]) -> None:
-    """The scenario body appends each thread id it creates to `threads`."""
-    if name != "E02":
-        raise WorldError(f"{name} is not implemented")
-    from e2e.phase3_e02 import run_e02
-    from e2e.state_api import endpoint_base
+    """Load the scenario module named by the caller and run it."""
+    import importlib
 
-    with open_client(settings, settings.sn_admin_user, settings.sn_admin_password) as admin:
-        base = endpoint_base(admin)
-    if not base:
-        raise WorldError("endpoint base uri was empty")
-    run_e02(settings, threads, base)
+    try:
+        module = importlib.import_module(f"e2e.scenario_{name.lower()}")
+    except ModuleNotFoundError:
+        raise WorldError(f"{name} is not implemented") from None
+    module.run(settings, threads)
 
 
 def _delete(settings: Settings, thread_ids: list[str]) -> None:

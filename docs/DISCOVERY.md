@@ -1219,3 +1219,23 @@ Each candidate was granted, read with a new client, and revoked when it did not 
 The same user can create an incident, look up a group by name, and look up a CI by name. A throwaway incident with correlation `E2E-PROBE-ROLE` was created and deleted. Probe residue after that delete was 0. A `sys_journal_field` query for an end-to-end incident returned zero rows, so the phase 2 helper reads the journal. No role was added for the journal, for `sys_user`, or for `cmdb`.
 
 Seed grants the incident user `sn_incident_write` and `problem_task_analyst`. The article read back as KB0010019. The problem read back as PRB0040059.
+
+## Phase 3
+
+### Simulated opened_at
+
+The incident user's Table API POST to `incident` accepts a past `opened_at` and stores the platform insert time. The write ACL is `task.opened_at`, operation write, active, `admin_overrides` true, role `admin`. There is no `incident.opened_at` write ACL. The dictionary default on `task.opened_at` is `javascript:gs.nowDateTime()`, and that default fills the insert clock. The business rules `mark_closed` and `mark_resolved` mention `opened_at` and do not assign it.
+
+An admin Table API POST stores the simulated `opened_at`. The import set `u_syn_e2e_inc_import`, posted as admin, stores it as well. Delivering an arrival is the world simulator (`e2e/simulator/deliver.py`), and that module uses the import path. The Phase 3 gate's five arrivals read back the fixture open times. The later parent update did not replace those times, so no coalesce repair ran. Detection, signals, and recurrence read `opened_at` from ServiceNow.
+
+### Closed problem and the state endpoint
+
+A problem in state 107 rejects `work_notes` and `rfc` for the problem user. Both writes return HTTP 403. The passing scenario does not write those fields on a Closed problem, and it does not reopen one.
+
+The same move operation accepts a change from 107 back to 103. The response status was 200, the read-back state was 103, and the fields on that request were empty. The clean scenario does not depend on that move.
+
+Deleting a change clears `problem.rfc`. The harness deletes the change before the scenario returns. After each passing run the change count was 0.
+
+### PMSYNTH
+
+The incident user read 200 incidents whose correlation starts with `PMSYNTH`. Nothing was written. CI precision was 0.571 and recall was 1.000: 7 candidates, 4 expected. Incident precision was 0.687 and recall was 1.000. The answer key's expected CIs are `db-prod-01`, `mail-01`, `payroll-app-01`, and `vpn-gw-01`. The three false candidates are `core-sw-01`, `crmdb`, and `sp-web-01`. None of the expected CIs were missed.

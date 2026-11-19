@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.contracts import change_idempotency_key
+from e2e.adapters.change import (
+    AUTH_RESUME,
+    approval_query,
+    bind_change_repo,
+    forget_thread_memory,
+    safe_detail,
+)
+from e2e.case_graph import case_id_for, hold_for_change, next_fix
+from e2e.contracts import change_idempotency_key, problem_idempotency_key
 from e2e.data.catalog import for_mechanism_class
 from e2e.data.ground_truth import problem_key
 from e2e.data.world import HOLD_EMERGENCY, HOLD_FIX_FAILED, HOLD_HIGH_RISK, MARKER
-from e2e.phase3_e02 import (
-    POLICY_LIMIT,
-    accept_mechanism,
-    case_id_for,
-    checkout_candidates,
-    hold_for_change,
-    next_fix,
-)
+from e2e.scenario_e02 import OVERLAY
+from tests.helpers.decisions import accept_planted_cause
 
 
 def test_the_graph_root_is_the_sibling_change_repo() -> None:
@@ -27,9 +29,8 @@ def test_the_graph_root_is_the_sibling_change_repo() -> None:
     import cm_agents.settings as cm_settings
 
     from e2e.paths import repo_root
-    from e2e.phase3_e02 import _bind_change_repo
 
-    bound = _bind_change_repo()
+    bound = bind_change_repo()
     assert bound.name == "ChangeManagementAgent"
     assert bound != repo_root()
     assert runner.repo_root() == bound
@@ -43,9 +44,7 @@ def test_the_graph_root_is_the_sibling_change_repo() -> None:
 
 
 def test_graph_errors_drop_local_paths() -> None:
-    from e2e.phase3_e02 import _safe_detail
-
-    detail = _safe_detail(
+    detail = safe_detail(
         FileNotFoundError(r"C:\Users\someone\data\synthetic\fixtures.json")
     )
     assert "Users" not in detail
@@ -54,15 +53,11 @@ def test_graph_errors_drop_local_paths() -> None:
 
 
 def test_authorization_resume_is_not_an_empty_map() -> None:
-    from e2e.phase3_e02 import AUTH_RESUME
-
     assert AUTH_RESUME == {"continue": "true"}
     assert AUTH_RESUME
 
 
 def test_approval_query_is_the_authority_users_row() -> None:
-    from e2e.phase3_e02 import approval_query
-
     query = approval_query("a" * 32, "b" * 32)
     assert query == f"sysapproval={'a' * 32}^state=requested^approver={'b' * 32}"
 
@@ -70,8 +65,6 @@ def test_approval_query_is_the_authority_users_row() -> None:
 def test_a_finished_thread_is_forgotten_without_touching_other_threads(tmp_path) -> None:
     import json
     import sqlite3
-
-    from e2e.phase3_e02 import forget_thread_memory
 
     var = tmp_path / "var"
     var.mkdir()
@@ -146,7 +139,7 @@ def test_a_failed_catalog_entry_is_not_resubmitted() -> None:
     failed = {(mechanism, ci_class)}
     assert next_fix(mechanism, ci_class, failed) == HOLD_FIX_FAILED
     assert next_fix(mechanism, ci_class, set()) == ""
-    assert POLICY_LIMIT == 2
+    assert OVERLAY.attempt_limit == 2
 
 
 def test_high_risk_and_emergency_are_held() -> None:
@@ -169,6 +162,127 @@ def test_case_id_ties_the_problem_key_to_the_thread() -> None:
 
 
 def test_the_helper_accepts_the_checkout_ground_truth() -> None:
-    assert accept_mechanism("log_rotation_stopped", "syn-store-checkout")
-    assert not accept_mechanism("checkout_saturation", "syn-store-checkout")
-    assert not accept_mechanism("log_rotation_stopped", "syn-store-web")
+    assert accept_planted_cause("log_rotation_stopped", "syn-store-checkout", scenario="E02")
+    assert not accept_planted_cause("checkout_saturation", "syn-store-checkout", scenario="E02")
+    assert not accept_planted_cause("log_rotation_stopped", "syn-store-web", scenario="E02")
+
+
+def test_the_detected_key_is_the_ci_and_category() -> None:
+    from e2e.data.fixtures import change_world
+    from e2e.data.world import category_for_class
+
+    _changes, ci_index = change_world()
+    ci_class = ci_index["syn-store-checkout"]["ci_class"]
+    category = category_for_class(ci_class)
+    detected = problem_idempotency_key(f"syn-store-checkout|{category}")
+    planted = problem_key("syn-store-checkout", "log_rotation_stopped")
+    assert detected != planted
+    assert detected.startswith(f"{MARKER}PRB-")
+    assert case_id_for(detected)[4:] == detected.split("-")[-1][:8]
+
+
+def test_cluster_signals_match_the_backtest() -> None:
+    from e2e.adapters.incident import cluster_signals
+    from e2e.data.backtest import run_backtest
+    from e2e.data.fixtures import build_incidents
+
+    shaped = []
+    for row in build_incidents():
+        if not row["history"] and row["cluster"] != "C02":
+            continue
+        shaped.append(
+            {
+                "sys_id": row["correlation_id"],
+                "number": row["correlation_id"],
+                "opened_at": row["opened_at"],
+                "cmdb_ci": row["cmdb_ci"],
+                "category": row["category"],
+                "close_notes": row["notes"],
+                "description": row["description"],
+                "parent": row.get("parent") or "",
+                "short_description": row["short_description"],
+                "correlation_id": row["correlation_id"],
+                "state": row["state"],
+            }
+        )
+    names = {row["cmdb_ci"]: row["cmdb_ci"] for row in shaped}
+    checkout = next(row for row in shaped if row["cmdb_ci"] == "syn-store-checkout")
+    signal = cluster_signals(
+        shaped,
+        names,
+        ci_name="syn-store-checkout",
+        category=str(checkout["category"]),
+    )
+    expected = next(
+        row for row in run_backtest()["reports"]["full"]["clusters"] if row["cluster"] == "C02"
+    )
+    assert signal["a"] == expected["a"] == "log_rotation_stopped"
+    assert signal["b"] == expected["b"] == "log_rotation_stopped"
+    assert signal["c"] == expected["c"] == "log_rotation_stopped"
+    assert signal["d"] is False
+    assert signal["d"] == expected["d"]
+    assert signal["fired"] == expected["fired"]
+    assert signal["decision"] == expected["decision"] == "confirmed"
+    assert signal["mechanism"] == expected["mechanism"]
+
+
+def test_runtime_modules_do_not_import_ground_truth() -> None:
+    import ast
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    modules = [
+        repo / "e2e" / "case_graph.py",
+        repo / "e2e" / "tick.py",
+        repo / "e2e" / "pmsynth.py",
+        repo / "e2e" / "cli.py",
+        repo / "e2e" / "scenarios.py",
+        repo / "e2e" / "simulator" / "deliver.py",
+        repo / "e2e" / "simulator" / "registry.py",
+        repo / "e2e" / "simulator" / "resolver.py",
+    ]
+    modules.extend((repo / "e2e" / "adapters").glob("*.py"))
+    banned_names = {"ground_truth", "CLUSTERS"}
+    date = re.compile(r"\d{4}-\d{2}-\d{2}")
+    named = {
+        repo / "e2e" / "case_graph.py",
+        repo / "e2e" / "tick.py",
+        repo / "e2e" / "pmsynth.py",
+        repo / "e2e" / "simulator" / "registry.py",
+        repo / "e2e" / "simulator" / "resolver.py",
+        repo / "e2e" / "simulator" / "deliver.py",
+    }
+    offenders: list[str] = []
+    for path in modules:
+        text = path.read_text(encoding="utf-8")
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                imported = {alias.name for alias in node.names}
+                if "ground_truth" in module or imported & banned_names or "CLUSTERS" in module:
+                    offenders.append(f"{path.name}: import")
+            if isinstance(node, ast.Name) and node.id in banned_names:
+                offenders.append(f"{path.name}: {node.id}")
+        if path in named or path.parent.name == "adapters":
+            if "syn-store-checkout" in text or re.search(r"\bE0\d\b", text) or date.search(text):
+                offenders.append(f"{path.name}: scenario literal")
+    assert offenders == []
+
+
+def checkout_candidates(*, include_fifth: bool) -> list[dict]:
+    """Offline detect on checkout rows. The fifth arrival is 2026-10-24."""
+    from e2e.adapters.incident import detect_row, load_detect
+    from e2e.data.fixtures import build_incidents
+
+    ci = "syn-store-checkout"
+    payload = []
+    for row in build_incidents():
+        if row["cmdb_ci"] != ci:
+            continue
+        if not include_fifth and str(row["opened_at"]) >= "2026-10-24":
+            continue
+        payload.append(detect_row(row, ci=ci))
+    found = load_detect()(payload, {ci: ci})
+    return [row for row in found if row.get("cmdb_ci") == ci]
